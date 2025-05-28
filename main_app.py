@@ -73,13 +73,14 @@ def launch_main_app(user_data):
     min_btn   = pygame.Rect(close_btn.x - 20, padding + 5, 20, 20)
 
     btn_w, btn_h, pad = 140, 40, 10
-    top_y = 20
+    top_y = int(sh * 0.1)  # Moved buttons lower (adjust percentage as needed)
     total_w = btn_w*3 + pad*2
     start_x = sw - pad - total_w
-    account_btn = pygame.Rect(start_x,              top_y, btn_w, btn_h)
-    history_btn = pygame.Rect(start_x + (btn_w+pad), top_y, btn_w, btn_h)
+    account_btn = pygame.Rect(start_x,                top_y, btn_w, btn_h)
+    history_btn = pygame.Rect(start_x + (btn_w+pad),  top_y, btn_w, btn_h)
     simple_btn  = pygame.Rect(start_x + 2*(btn_w+pad), top_y, btn_w, btn_h)
     back_btn    = pygame.Rect(50, sh - 70, 100, 40)
+
 
     # State
     last_fetch    = time.time()
