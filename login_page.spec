@@ -5,7 +5,7 @@ a = Analysis(
     ['login_page.py'],
     pathex=[],
     binaries=[],
-    datas=[('overlay-bg.jpg', '.'), ('background.jpg', '.')],
+    datas=[('overlay-bg.jpg', '.'), ('background.jpg', '.'), ('golden-clubs.png', '.'), ('golden-diamond.png', '.'), ('golden-hearts.png', '.'), ('golden-spades.png', '.'), ('golden-k.png', '.'), ('golden-j.png', '.'), ('golden-q.png', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
