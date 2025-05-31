@@ -1,129 +1,403 @@
-# wheel_module.py
 import pygame
+import pygame.gfxdraw
+import requests
 import math
-import time
+import json
+from datetime import datetime
+import globals
+new_withdraw_time = None
 
-# Wheel drawing and spin logic
+def print_withdraw_time():
+    # This will only run when you explicitly call it, so by then main_app.py has set it
+    print("Withdraw_time (from wheel_module):", globals.Withdraw_time)
+    new_withdraw_time = globals.Withdraw_time
+
+# --------------------------------------------------
+# COLORS
+# --------------------------------------------------
+WHITE    = (255, 255, 255)
+RED      = (200, 30, 30)
+TABLE_BG = (0x35, 0x0b, 0x2d)
+GRID     = (80, 80, 80)
+BLUE_BG  = (30, 60, 200)
+BUTTON_BG = (50, 50, 50)
+BUTTON_BORDER = (200, 200, 200)
+
+# --------------------------------------------------
+# GLOBAL STATE FOR CHIP SELECTION / PLACEMENT
+# --------------------------------------------------
+selected_chip = None  # Index of the currently selected chip in the tray
+placed_chips = {}     # key: (row, col), value: total amount in that cell
+
+chip_rects = []
+cell_rects = {}
+rank_icon_rects = {}
+suit_icon_rects = {}
+bet_button_rect = None  # Will hold pygame.Rect for the "Bet" button
+
+# --------------------------------------------------
+# CHIP DEFINITIONS (color + amount)
+# --------------------------------------------------
+chip_defs = [
+    {'color': (200, 0, 0),   'amount': 10},
+    {'color': (0, 150, 0),   'amount': 50},
+    {'color': (0, 0, 200),   'amount': 100},
+    {'color': (200, 200, 0), 'amount': 500},
+]
+
+# --------------------------------------------------
+# DRAW FUNCTIONS
+# --------------------------------------------------
 
 def draw_wheel(surf, wheel_center, outer_radius, mid_radius, inner_radius,
                num_segments, outer_segment_colors, mid_segment_colors,
                labels_kjq, labels_suits, current_ang):
     """
-    Draw the spinning wheel with outer K/J/Q icons and mid-level suits.
+    Draw the spinning wheel with outer K/J/Q icons and mid‐level suits,
+    preserving segment count and original TABLE_BG background.
     """
-    # Draw outer ring
-    for i in range(num_segments):
-        start_angle = math.radians(i * 360 / num_segments + current_ang)
-        end_angle   = start_angle + math.radians(360 / num_segments)
-        pts = [wheel_center]
-        for step in range(31):
-            a = start_angle + (end_angle - start_angle) * (step / 30)
-            x = wheel_center[0] + outer_radius * math.cos(a)
-            y = wheel_center[1] + outer_radius * math.sin(a)
-            pts.append((x, y))
-        pygame.draw.polygon(surf, outer_segment_colors[i], pts)
-        pygame.draw.polygon(surf, (0,0,0), pts, 2)
+    pygame.gfxdraw.filled_circle(surf, wheel_center[0], wheel_center[1], outer_radius, TABLE_BG)
+    pygame.gfxdraw.aacircle(surf, wheel_center[0], wheel_center[1], outer_radius, GRID)
 
-    # Draw K/J/Q labels
-    ranks = ['K', 'J', 'Q']
-    for i in range(num_segments):
-        img = labels_kjq[ranks[i % 3]]
-        angle = math.radians((i + 0.5) * 360 / num_segments + current_ang)
-        pos = (
-            wheel_center[0] + (outer_radius * 0.7) * math.cos(angle),
-            wheel_center[1] + (outer_radius * 0.7) * math.sin(angle)
-        )
-        surf.blit(img, img.get_rect(center=pos))
-
-    # Draw mid-circle segments
     for i in range(num_segments):
         start = math.radians(i * 360 / num_segments + current_ang)
         end   = start + math.radians(360 / num_segments)
         pts   = [wheel_center]
-        for step in range(31):
-            a = start + (end - start) * (step / 30)
-            pts.append((wheel_center[0] + mid_radius * math.cos(a),
-                        wheel_center[1] + mid_radius * math.sin(a)))
-        pygame.draw.polygon(surf, mid_segment_colors[i], pts)
-        pygame.draw.polygon(surf, (0,0,0), pts, 2)
+        steps = 60
+        for s in range(steps + 1):
+            a = start + (end - start) * (s / steps)
+            x = wheel_center[0] + outer_radius * math.cos(a)
+            y = wheel_center[1] + outer_radius * math.sin(a)
+            pts.append((int(x), int(y)))
+        pygame.gfxdraw.filled_polygon(surf, pts, outer_segment_colors[i])
+        pygame.gfxdraw.aapolygon(surf, pts, (0, 0, 0))
 
-    # Draw suits
-    suit_list = ['Spades', 'Diamond', 'Clubs', 'Hearts']
+    ranks = ['K', 'J', 'Q']
     for i in range(num_segments):
-        img = labels_suits[suit_list[i % 4]]
+        img   = labels_kjq[ranks[i % 3]]
         angle = math.radians((i + 0.5) * 360 / num_segments + current_ang)
-        pos = (
-            wheel_center[0] + (mid_radius * 0.85) * math.cos(angle),
-            wheel_center[1] + (mid_radius * 0.85) * math.sin(angle)
+        pos   = (
+            int(wheel_center[0] + outer_radius * 0.7 * math.cos(angle)),
+            int(wheel_center[1] + outer_radius * 0.7 * math.sin(angle))
         )
         surf.blit(img, img.get_rect(center=pos))
 
-    # Draw inner circle
-    pygame.draw.circle(surf, (255,255,255), wheel_center, inner_radius)
-    pygame.draw.circle(surf, (0,0,0), wheel_center, inner_radius, 2)
+    pygame.gfxdraw.filled_circle(surf, wheel_center[0], wheel_center[1], mid_radius, TABLE_BG)
+    pygame.gfxdraw.aacircle(surf, wheel_center[0], wheel_center[1], mid_radius, GRID)
 
-def draw_left_table(surf, now_ts, labels_kjq, labels_suits,
-                    x0, y0, label_size, suit_size, small_font):
-    opts = {
-        'col_widths': [200,75,75,75,75],
-        'cell_height': 50,
-        'rows': 4
-    }
-    col_widths = opts['col_widths']
-    cell_h = opts['cell_height']
-    rows = opts['rows']
-    # Draw grid
-    x = x0
-    for w in col_widths:
-        pygame.draw.line(surf, (255,255,255), (x, y0), (x, y0+rows*cell_h), 2)
-        x += w
-    pygame.draw.line(surf, (255,255,255), (x, y0), (x, y0+rows*cell_h), 2)
-    y = y0
-    for _ in range(rows+1):
-        pygame.draw.line(surf, (255,255,255), (x0, y), (x0+sum(col_widths), y), 2)
-        y += cell_h
-    # Header row
-    time_str = datetime.fromtimestamp(now_ts).strftime("%H:%M:%S")
-    txt = f"Withdraw time: {time_str}"
-    rect = pygame.Rect(x0, y0, col_widths[0], cell_h)
-    surf.blit(small_font.render(txt, True, (255,255,255)), (rect.x+10, rect.y+10))
-    # Suit icons
-    suits = ['Spades','Diamond','Clubs','Hearts']
-    for i, suit in enumerate(suits,1):
-        img = labels_suits[suit]
-        cell = pygame.Rect(x0+sum(col_widths[:i]), y0, col_widths[i], cell_h)
-        surf.blit(img, img.get_rect(center=cell.center))
-    # Rank rows
-    ranks = ['K','Q','J']
-    for ridx, rank in enumerate(ranks,1):
-        img_rank = labels_kjq[rank]
-        # rank column
-        cell = pygame.Rect(x0, y0+ridx*cell_h, col_widths[0], cell_h)
-        surf.blit(img_rank, img_rank.get_rect(center=cell.center))
-        # rank+suit cells
-        for cidx, suit in enumerate(suits,1):
-            cell = pygame.Rect(x0+sum(col_widths[:cidx]), y0+ridx*cell_h,
-                               col_widths[cidx], cell_h)
-            # position icons with small gap
-            total_w = label_size + suit_size + 10
-            start_x = cell.centerx - total_w/2
-            yc = cell.centery
-            surf.blit(img_rank, img_rank.get_rect(center=(start_x+label_size/2, yc)))
-            img_s = labels_suits[suit]
-            surf.blit(img_s, img_s.get_rect(center=(start_x+label_size+10+suit_size/2, yc)))
+    for i in range(num_segments):
+        start = math.radians(i * 360 / num_segments + current_ang)
+        end   = start + math.radians(360 / num_segments)
+        pts   = [wheel_center]
+        steps = 60
+        for s in range(steps + 1):
+            a = start + (end - start) * (s / steps)
+            x = wheel_center[0] + mid_radius * math.cos(a)
+            y = wheel_center[1] + mid_radius * math.sin(a)
+            pts.append((int(x), int(y)))
+        pygame.gfxdraw.filled_polygon(surf, pts, mid_segment_colors[i])
+        pygame.gfxdraw.aapolygon(surf, pts, (0, 0, 0))
+
+    suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
+    for i in range(num_segments):
+        img   = labels_suits[suits[i % 4]]
+        angle = math.radians((i + 0.5) * 360 / num_segments + current_ang)
+        pos   = (
+            int(wheel_center[0] + mid_radius * 0.85 * math.cos(angle)),
+            int(wheel_center[1] + mid_radius * 0.85 * math.sin(angle))
+        )
+        surf.blit(img, img.get_rect(center=pos))
+
+    pygame.gfxdraw.filled_circle(surf, wheel_center[0], wheel_center[1], inner_radius, WHITE)
+    pygame.gfxdraw.aacircle(surf, wheel_center[0], wheel_center[1], inner_radius, (0, 0, 0))
+
+
 def update_spin(current_time, spin_start, total_rotation):
     """
-    Return updated angle and spinning flag based on elapsed time.
+    Returns (angle_deg % 360, spinning_flag) based on a 4‐second animation:
+     - first 3s: linear from 0 to 75% of total_rotation
+     - last 1s: ease‐out from 75% to 100% of total_rotation
     """
     duration = 4.0
-    elapsed = min(current_time - spin_start, duration)
+    elapsed  = min(current_time - spin_start, duration)
+
     if elapsed <= 3.0:
         t = elapsed / 3.0
         ang = (total_rotation * 0.75) * t
         spinning = True
     else:
-        u = (elapsed - 3.0) / 1.0
+        u     = (elapsed - 3.0) / 1.0
         eased = 1 - (1 - u) * (1 - u)
-        ang = (total_rotation * 0.75) + (total_rotation * 0.25) * eased
+        ang   = (total_rotation * 0.75) + (total_rotation * 0.25) * eased
         spinning = elapsed < duration
+
     return ang % 360, spinning
+
+
+def draw_left_table(
+    surf,
+    now_ts,
+    labels_kjq,
+    labels_suits,
+    x0,
+    y0,
+    label_size,
+    suit_size,
+    small_font,
+    rows=4,
+    cols=5
+):
+    """
+    Draws:
+      1) A table of blue cells (rows × cols) with a “Withdraw time” header row
+         (suit icons) and a rank column (K/Q/J).
+      2) A tray of chips below the table.
+      3) Any chips that have been placed on the blue cells, showing their total amount.
+      4) A visible text displaying the current total bet.
+      5) A “Bet” button to submit placed bets via POST.
+
+    SIDE EFFECTS (globals):
+      - chip_rects: list of pygame.Rect for each chip in the tray
+      - cell_rects: dict mapping (ridx, cidx) → pygame.Rect of each blue cell
+      - rank_icon_rects: dict mapping ridx → pygame.Rect of each rank icon
+      - suit_icon_rects: dict mapping cidx → pygame.Rect of each suit icon
+      - bet_button_rect: pygame.Rect defining the “Bet” button area
+    """
+    global chip_rects, cell_rects, rank_icon_rects, suit_icon_rects, bet_button_rect
+    chip_rects       = []
+    cell_rects       = {}
+    rank_icon_rects  = {}
+    suit_icon_rects  = {}
+    bet_button_rect  = None
+
+    sw, sh    = surf.get_size()
+    table_w   = int(sw * 0.48)
+    table_h   = int(sh * 0.60)
+    cell_h    = table_h // rows
+    col_w     = table_w // cols
+    radius    = 8
+
+    # 1) Draw table background & grid lines
+    table_rect = pygame.Rect(x0, y0, table_w, table_h)
+    pygame.draw.rect(surf, TABLE_BG, table_rect)
+
+    for i in range(cols + 1):
+        x = x0 + i * col_w
+        pygame.draw.line(surf, WHITE, (x, y0), (x, y0 + table_h), 2)
+    for j in range(rows + 1):
+        y = y0 + j * cell_h
+        pygame.draw.line(surf, WHITE, (x0, y), (x0 + table_w, y), 2)
+
+    # 2) Header row: “Withdraw time” + live clock + suit icons
+    time_str = datetime.fromtimestamp(now_ts).strftime("%H:%M:%S")
+    surf.blit(small_font.render("Withdraw time:", True, WHITE), (x0 + 10, y0 + 5))
+    surf.blit(small_font.render(globals.Withdraw_time, True, WHITE), (x0 + 10, y0 + 25))
+
+    suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
+    for i, suit in enumerate(suits, start=1):
+        cell = pygame.Rect(x0 + col_w * i, y0, col_w, cell_h)
+        img  = pygame.transform.smoothscale(labels_suits[suit], (suit_size, suit_size))
+        surf.blit(img, img.get_rect(center=cell.center))
+        suit_icon_rects[i] = cell
+
+    # 3) Draw rank‐column and each blue “play” cell
+    ribbon_font = pygame.font.Font(None, max(8, int(small_font.get_height() * 0.8)))
+    ranks = ['K', 'Q', 'J']
+
+    for ridx, rank in enumerate(ranks, start=1):
+        cell_rank = pygame.Rect(x0, y0 + ridx * cell_h, col_w, cell_h)
+        img_rank  = pygame.transform.smoothscale(labels_kjq[rank], (label_size, label_size))
+        surf.blit(img_rank, img_rank.get_rect(center=cell_rank.center))
+        rank_icon_rects[ridx] = cell_rank
+
+        for cidx, suit in enumerate(suits, start=1):
+            cell = pygame.Rect(
+                x0 + col_w * cidx,
+                y0 + ridx * cell_h,
+                col_w,
+                cell_h
+            )
+            box_w = col_w * 0.7
+            box_h = cell_h * 0.9
+            inset_x = cell.left + (col_w - box_w) / 2
+            inset_y = cell.top  + (cell_h - box_h) / 2
+            blue_box = pygame.Rect(int(inset_x), int(inset_y), int(box_w), int(box_h))
+
+            cell_rects[(ridx, cidx)] = blue_box
+
+            pygame.draw.rect(surf, BLUE_BG, blue_box, border_radius=radius)
+            pygame.draw.rect(surf, WHITE, blue_box, 2, border_radius=radius)
+
+            total_w = label_size + suit_size + 8
+            yc = blue_box.centery
+            surf.blit(
+                img_rank,
+                img_rank.get_rect(
+                    center=(int(blue_box.centerx - total_w/2 + label_size/2), yc)
+                )
+            )
+            img_s = pygame.transform.smoothscale(labels_suits[suit], (suit_size, suit_size))
+            surf.blit(
+                img_s,
+                img_s.get_rect(
+                    center=(int(blue_box.centerx - total_w/2 + label_size + 8 + suit_size/2), yc)
+                )
+            )
+
+            ribbon_h = box_h * 0.2
+            ribbon_w = box_w * 1.05
+            ribbon_x = blue_box.left - (ribbon_w - box_w) / 2
+            ribbon_y = blue_box.bottom - ribbon_h
+            ribbon_rect = pygame.Rect(int(ribbon_x), int(ribbon_y), int(ribbon_w), int(ribbon_h))
+
+            pygame.gfxdraw.filled_polygon(
+                surf,
+                [ribbon_rect.topleft, ribbon_rect.topright,
+                 ribbon_rect.bottomright, ribbon_rect.bottomleft],
+                RED
+            )
+            pygame.gfxdraw.aapolygon(
+                surf,
+                [ribbon_rect.topleft, ribbon_rect.topright,
+                 ribbon_rect.bottomright, ribbon_rect.bottomleft],
+                WHITE
+            )
+
+            play_surf = ribbon_font.render("Play", True, WHITE)
+            surf.blit(
+                play_surf,
+                (
+                    ribbon_rect.left + (ribbon_w - play_surf.get_width()) / 2,
+                    ribbon_rect.top  + (ribbon_h - play_surf.get_height()) / 2
+                )
+            )
+
+    # 4) Draw all placed chips on the table
+    for (ridx, cidx), total_amt in placed_chips.items():
+        if (ridx, cidx) in cell_rects:
+            center_x = cell_rects[(ridx, cidx)].centerx
+            center_y = cell_rects[(ridx, cidx)].centery
+            chip_radius = min(cell_h, col_w) // 6
+            pygame.gfxdraw.filled_circle(surf, center_x, center_y, chip_radius, chip_defs[0]['color'])
+            pygame.gfxdraw.aacircle(surf, center_x, center_y, chip_radius, WHITE)
+            amt_surf = small_font.render(str(total_amt), True, WHITE)
+            surf.blit(amt_surf, amt_surf.get_rect(center=(center_x, center_y)))
+
+    # 5) Draw chip “tray” below the table
+    chip_radius = min(cell_h, col_w) // 6
+    chip_dia    = chip_radius * 2
+    chip_spacing= chip_dia + 10
+    start_x     = x0 + 10
+    chips_y     = y0 + table_h + chip_radius + 20
+
+    angle = (now_ts * 360) % 360
+
+    for idx, chip in enumerate(chip_defs):
+        cx = start_x + idx * chip_spacing
+        cy = chips_y
+
+        base_chip_surf = pygame.Surface((chip_dia, chip_dia), pygame.SRCALPHA)
+        pygame.gfxdraw.filled_circle(base_chip_surf, chip_radius, chip_radius, chip_radius, chip['color'])
+        pygame.gfxdraw.aacircle(base_chip_surf, chip_radius, chip_radius, chip_radius, WHITE)
+        amt_surf = small_font.render(str(chip['amount']), True, WHITE)
+        base_chip_surf.blit(amt_surf, amt_surf.get_rect(center=(chip_radius, chip_radius)))
+
+        if selected_chip == idx:
+            rotated_surf = pygame.transform.rotate(base_chip_surf, angle)
+            rotated_rect = rotated_surf.get_rect(center=(int(cx), int(cy)))
+            surf.blit(rotated_surf, rotated_rect)
+            chip_rects.append(pygame.Rect(int(cx - chip_radius), int(cy - chip_radius), chip_dia, chip_dia))
+        else:
+            surf.blit(base_chip_surf, base_chip_surf.get_rect(center=(int(cx), int(cy))))
+            chip_rects.append(pygame.Rect(int(cx - chip_radius), int(cy - chip_radius), chip_dia, chip_dia))
+
+    # 6) Draw “Current Bet” text
+    total_bet = sum(placed_chips.values())
+    bet_text = small_font.render(f"Current Bet: {total_bet}", True, WHITE)
+    surf.blit(bet_text, (x0 + 10, chips_y + chip_dia + 10))
+    text_h = small_font.get_height()
+
+    # 7) Draw “Bet” button below the text
+    btn_w, btn_h = 100, 30
+    btn_x = x0 + 10
+    btn_y = chips_y + chip_dia + 10 + text_h + 10
+    bet_button_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+    pygame.draw.rect(surf, BUTTON_BG, bet_button_rect, border_radius=4)
+    pygame.draw.rect(surf, BUTTON_BORDER, bet_button_rect, 2, border_radius=4)
+    btn_txt = small_font.render("Bet", True, WHITE)
+    surf.blit(btn_txt, btn_txt.get_rect(center=bet_button_rect.center))
+
+
+def handle_click(mouse_pos):
+    """
+    Must be called from your main loop on MOUSEBUTTONDOWN.
+
+    1) If the user clicks on a tray‐chip, that becomes selected.
+    2) If the user clicks on the “Bet” button, send placed_chips as JSON via POST:
+       • Endpoint: http://spintofortune.in/api/app_place_bet.php
+       • JSON body: { "bets": { "r_c": amount, ... } }
+       • Print the JSON response from the API.
+    3) If a chip is selected and the user clicks on:
+       • A rank icon (K/Q/J) → add amount to each cell in that row.
+       • A suit icon    → add amount to each cell in that column.
+       • Any individual blue cell → add amount there.
+       Selection remains after placing.
+    4) Click elsewhere → deselect.
+    """
+    global selected_chip, placed_chips
+
+    # 1) Bet button
+    if bet_button_rect and bet_button_rect.collidepoint(mouse_pos):
+        payload = {
+            "bets": {f"{r}_{c}": amt for (r, c), amt in placed_chips.items()},
+            "Withdraw_time": globals.Withdraw_time,
+            "User_id": globals.User_id
+        }
+        print("→ Sending payload:", json.dumps(payload, indent=2))
+
+        resp = requests.post(
+            "https://spintofortune.in/api/app_place_bet.php",
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        print("← Status:", resp.status_code)
+        print("← Raw response text:", resp.text)
+        resp.raise_for_status()
+        data = resp.json()
+        print(json.dumps(data, indent=2))
+
+        # --- clear all placed bets ---
+        placed_chips.clear()
+        selected_chip = None
+        return
+
+    # 2) Tray‐chip selection
+    for idx, rect in enumerate(chip_rects):
+        if rect.collidepoint(mouse_pos):
+            selected_chip = idx
+            return
+
+    # 3) Place bets if a chip is selected
+    if selected_chip is not None:
+        # Rank row
+        for ridx, rect in rank_icon_rects.items():
+            if rect.collidepoint(mouse_pos):
+                for (r, c) in cell_rects:
+                    if r == ridx:
+                        placed_chips[(r, c)] = placed_chips.get((r, c), 0) + chip_defs[selected_chip]['amount']
+                return
+        # Suit column
+        for cidx, rect in suit_icon_rects.items():
+            if rect.collidepoint(mouse_pos):
+                for (r, c) in cell_rects:
+                    if c == cidx:
+                        placed_chips[(r, c)] = placed_chips.get((r, c), 0) + chip_defs[selected_chip]['amount']
+                return
+        # Individual cell
+        for (ridx, cidx), rect in cell_rects.items():
+            if rect.collidepoint(mouse_pos):
+                placed_chips[(ridx, cidx)] = placed_chips.get((ridx, cidx), 0) + chip_defs[selected_chip]['amount']
+                return
+
+    # 4) Elsewhere: deselect
+    selected_chip = None

@@ -1,0 +1,1 @@
+pyinstaller --onefile --noconsole --add-data "overlay-bg.jpg;." --add-data "background.jpg;." --add-data "golden-clubs.png;." --add-data "golden-diamond.png;." --add-data "golden-hearts.png;." --add-data "golden-spades.png;." --add-data "golden-k.png;." --add-data "golden-j.png;." --add-data "golden-q.png;." login_page.py
