@@ -1,14 +1,20 @@
-import pygame
-import pygame.gfxdraw
+import os
+import platform
+import json
+import subprocess
+import sys
+import io
 import requests
 import math
-import sys
-import json
-import platform
-import subprocess
-
+import pygame
+import pygame.gfxdraw
 
 from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.graphics.barcode import code128
+from reportlab.lib.units import mm
+
 import globals
 new_withdraw_time = None
 
@@ -60,120 +66,207 @@ import subprocess
 
 def print_json_silent(data_dict, printer_name=None):
     """
-    Sends the given Python dictionary (as pretty-printed JSON) directly to the default printer,
-    without any user‐visible dialog. Works on Windows and on Linux/macOS.
-
-    – data_dict: the Python dict you want to print.
-    – printer_name (optional): a string name of a specific printer. If omitted, uses the system default.
+    1) Extracts the relevant ticket fields from `data_dict`.
+    2) Builds a formatted PDF (with header, ticket fields, generated barcode + serial text, footer).
+    3) Saves that PDF to disk (for inspection).
+    4) Sends the PDF to the default (or named) printer silently—no dialogs.
+    
+    – data_dict: the Python dict you received from the API (containing data["ticket"]).
+    – printer_name (optional): a specific printer name. If omitted, uses the OS default.
     """
 
-    # Serialize your dict to a JSON string
-    json_text = json.dumps(data_dict, indent=2)
+    # --- 1) Extract fields from data_dict ---
+    ticket_block = data_dict.get("data", {}).get("ticket", {})
+    if not ticket_block:
+        print("[Printer][Error] No 'ticket' block found in data_dict.")
+        return
+
+    ticket_id       = ticket_block.get("id", "")
+    serial_number   = ticket_block.get("serial_number", "")
+    user_id         = ticket_block.get("user_id", "")
+    amount          = ticket_block.get("amount", "")
+    withdraw_time   = ticket_block.get("created_at", "")
+
+    # Static or hardcoded fields (adjust if your API provides these)
+    game_name = "Poker Roulette 12 Cards"
+    game_id   = "5678425"
+
+    now = datetime.now()
+    print_date = now.strftime("%Y-%m-%d")
+    print_time = now.strftime("%H:%M:%S")
+
+    print(f"[Printer][Info] Preparing ticket data:")
+    print(f"  Ticket ID     : {ticket_id}")
+    print(f"  Serial Number : {serial_number}")
+    print(f"  Terminal Name : {user_id}")
+    print(f"  Amount        : ₹{amount}")
+    print(f"  Withdraw Time : {withdraw_time}")
+    print(f"  Print Date    : {print_date}")
+    print(f"  Print Time    : {print_time}")
+
+    # --- 2) Build a formatted PDF with generated barcode ---
+    base_pdf_name = f"ticket_{serial_number}"
+    pdf_filename = base_pdf_name + ".pdf"
+    print(f"[Printer][Info] Generating PDF: {pdf_filename}")
+
+    c = canvas.Canvas(pdf_filename, pagesize=letter)
+    width, height = letter
+
+    y = height - 50
+
+    # Header: "For Amusement Only"
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(width / 2, y, "For Amusement Only")
+    y -= 30
+
+    # Ticket ID
+    c.setFont("Helvetica-Bold", 14)
+    c.drawCentredString(width / 2, y, f"Ticket ID: {ticket_id}")
+    y -= 25
+
+    # Collect lines to add
+    lines = [
+        f"Game Name        : {game_name}",
+        f"Terminal Name    : {user_id}",
+        f"Game ID          : {game_id}",
+        f"Withdraw Time    : {withdraw_time}",
+        f"Print Date       : {print_date}",
+        f"Print Time       : {print_time}",
+        f"Serial Number    : {serial_number}",
+        f"Amount           : {amount}",
+    ]
+
+    c.setFont("Helvetica", 12)
+    for line in lines:
+        print(f"[Printer][Info] Adding to PDF: {line}")
+        c.drawString(50, y, line)
+        y -= 20
+
+    # Generate a Code128 barcode for the serial number
+    if serial_number:
+        try:
+            print(f"[Printer][Info] Generating barcode for: {serial_number}")
+            barcode_obj = code128.Code128(
+                serial_number,
+                barHeight=20 * mm,
+                barWidth=0.5 * mm
+            )
+            # Center the barcode horizontally
+            barcode_width = barcode_obj.width
+            x_barcode = (width - barcode_width) / 2
+            # Draw barcode
+            barcode_obj.drawOn(c, x_barcode, y - (20 * mm))
+            # Move y down by barcode height + some padding
+            y -= (20 * mm + 30)
+
+            # Draw the serial text below the barcode
+            c.setFont("Helvetica", 10)
+            # c.drawCentredString(width / 2, y + 10, serial_number)
+            print(f"[Printer][Info] Embedded barcode and serial text.")
+        except Exception as e:
+            print(f"[Printer][Warning] Could not generate/embed barcode: {e}")
+            y -= 30
+    else:
+        print(f"[Printer][Warning] No serial number to generate barcode.")
+        y -= 30
+
+    # Footer: "Not For Sale"
+    footer_text = "Not For Sale"
+    print(f"[Printer][Info] Adding footer to PDF: {footer_text}")
+    c.setFont("Helvetica-Bold", 12)
+    c.drawCentredString(width / 2, y, footer_text)
+
+    c.showPage()
+    # c.save()
+    print(f"[Printer][Info] PDF saved: {pdf_filename}")
+
+    # --- 3) Send PDF to the printer silently ---
     system = platform.system()
     print(f"[Printer] Detected OS: {system}")
 
     if system == "Windows":
-        # ---------------------
-        # Windows (silent, using win32print)
-        # ---------------------
         try:
-            sys.stdout.reconfigure(encoding="utf-8")
             import win32print
         except ImportError:
             print("[Printer][Error] On Windows, silent printing requires 'pywin32'.")
-            print("[Printer][Error] Please install it with: pip install pywin32")
+            print("[Printer][Error] Install it via: pip install pywin32")
             return
 
-        # 1) Determine which printer to open:
+        # Determine which printer to open
         try:
             if printer_name:
-                printer_to_open = printer_name
+                target_printer = printer_name
             else:
-                printer_to_open = win32print.GetDefaultPrinter() or ""
+                target_printer = win32print.GetDefaultPrinter() or ""
         except Exception as e:
             print(f"[Printer][Error] Could not retrieve default printer: {e}")
             return
 
-        if not printer_to_open:
-            print("[Printer] No default printer found on the system.")
+        if not target_printer:
+            print("[Printer][Error] No default printer found on Windows.")
             return
         else:
-            print(f"[Printer] Found printer: '{printer_to_open}'. Sending job now...")
+            print(f"[Printer] Using Windows printer: '{target_printer}'")
 
-        # 2) Open the printer handle
         try:
-            hPrinter = win32print.OpenPrinter(printer_to_open)
+            hPrinter = win32print.OpenPrinter(target_printer)
         except Exception as e:
-            print(f"[Printer][Error] Could not open printer '{printer_to_open}': {e}")
+            print(f"[Printer][Error] Could not open printer '{target_printer}': {e}")
             return
 
-        # 3) Prepare document information (RAW means we send bytes directly)
+        # Prepare document info: sending raw PDF bytes
         doc_info = (
-            "JSON Print Job",  # Arbitrary document name
-            None,              # No output file: print straight to printer
-            "RAW"              # DataType = RAW → print bytes as-is
+            pdf_filename,  # Document name (arbitrary)
+            None,          # No output file, direct to printer
+            "RAW"          # DataType = RAW, so bytes go directly
         )
 
         try:
+            print(f"[Printer][Info] Starting print job for '{pdf_filename}' on '{target_printer}'")
             job_id = win32print.StartDocPrinter(hPrinter, 1, doc_info)
             win32print.StartPagePrinter(hPrinter)
 
-            # Send JSON bytes
-            win32print.WritePrinter(hPrinter, json_text.encode("utf-8"))
+            # Read PDF bytes
+            with open(pdf_filename, "rb") as f:
+                pdf_bytes = f.read()
+            win32print.WritePrinter(hPrinter, pdf_bytes)
 
             win32print.EndPagePrinter(hPrinter)
             win32print.EndDocPrinter(hPrinter)
-            print(f"[Printer] Print job #{job_id} completed successfully on '{printer_to_open}'.")
+            print(f"[Printer][Info] Print job #{job_id} completed on '{target_printer}'.")
         except Exception as e:
-            print(f"[Printer][Error] Failed during printing to '{printer_to_open}': {e}")
+            print(f"[Printer][Error] Failed during printing to '{target_printer}': {e}")
         finally:
             win32print.ClosePrinter(hPrinter)
 
-
     elif system in ("Linux", "Darwin"):
-        # ---------------------
-        # Linux / macOS (silent, using lpr)
-        # ---------------------
-        # We pipe the JSON text directly into lpr’s stdin. No temp file needed.
-        cmd = ["lpr"]
-        if printer_name:
-            cmd += ["-P", printer_name]
-
-        # Before running lpr, let's check if 'lpr' exists in PATH
+        # On Linux/macOS: pipe the PDF file into `lpr`
         from shutil import which
         if which("lpr") is None:
             print("[Printer][Error] 'lpr' command not found.")
-            print("[Printer][Error] On Linux/macOS, install CUPS / lpr utilities.")
-            print("  • Ubuntu/Debian: sudo apt install cups lpr")
-            print("  • Fedora/CentOS: sudo dnf install cups lpr")
-            print("  • macOS: ensure CUPS is enabled in System Preferences → Printers & Scanners")
+            print("[Printer][Error] Install CUPS / lpr utilities.")
             return
 
-        # Determine target printer name for status message
+        cmd = ["lpr", pdf_filename]
+        if printer_name:
+            cmd = ["lpr", "-P", printer_name, pdf_filename]
+
         target = printer_name or "<default>"
-        print(f"[Printer] Sending job to {target} (via 'lpr').")
+        print(f"[Printer] Sending PDF to {target} (via 'lpr').")
 
         try:
-            # Pipe JSON text into lpr
-            proc = subprocess.run(
-                cmd,
-                input=json_text.encode("utf-8"),
-                check=True,
-                capture_output=True
-            )
-            print(f"[Printer] Job sent to printer {target} successfully.")
+            result = subprocess.run(cmd, check=True, capture_output=True)
+            print(f"[Printer][Info] PDF sent to printer '{target}' successfully (exit code {result.returncode}).")
         except subprocess.CalledProcessError as e:
-            stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-            print(f"[Printer][Error] lpr failed with exit code {e.returncode}.")
-            if stderr:
-                print(f"[Printer][Error] lpr stderr: {stderr.strip()}")
-            else:
-                print("[Printer][Error] No additional error output from lpr.")
+            stderr_out = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
+            print(f"[Printer][Error] lpr failed (code {e.returncode}).")
+            if stderr_out:
+                print(f"[Printer][Error] lpr stderr: {stderr_out.strip()}")
         except Exception as exc:
-            print(f"[Printer][Error] Unexpected error while calling lpr: {exc}")
+            print(f"[Printer][Error] Unexpected error calling lpr: {exc}")
 
     else:
-        print(f"[Printer][Error] Unsupported OS for silent printing: {system}")
+        print(f"[Printer][Error] Unsupported OS for printing: {system}")
 
 
 def draw_wheel(surf, wheel_center, outer_radius, mid_radius, inner_radius,
