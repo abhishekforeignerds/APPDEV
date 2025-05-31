@@ -1,0 +1,73 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.13.3)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+pygame 2.6.1 (SDL 2.28.4, Python 3.13.3)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+Withdraw_time (from wheel_module): 09:10
+Sending payload: {
+  "bets": {
+    "3_1": 10,
+    "3_2": 10,
+    "3_3": 10,
+    "3_4": 10,
+    "2_1": 10,
+    "2_2": 10,
+    "2_3": 10,
+    "2_4": 10,
+    "1_1": 10,
+    "1_2": 10,
+    "1_3": 10,
+    "1_4": 10
+  },
+  "Withdraw_time": "09:13",
+  "User_id": "1"
+}
+Status: 201
+Raw response text: 
+{"status":"success","data":{"ticketId":198,"historyId":2757,"serial":"279307950","cardType":10,"barcodePath":"279307950.png","totalBet":120,"ticket":{"id":198,"user_id":1,"serial_number":"279307950","bar_code_scanner":"279307950.png","amount":120,"card_name":"{\"8\":10,\"9\":10,\"10\":10,\"11\":10,\"4\":10,\"5\":10,\"6\":10,\"7\":10,\"0\":10,\"1\":10,\"2\":10,\"3\":10}","retailer_id":5,"created_at":"2025-05-31 09:10:48","updated_at":"2025-05-31 09:10:48"}}}
+{
+  "status": "success",
+  "data": {
+    "ticketId": 198,
+    "historyId": 2757,
+    "serial": "279307950",
+    "cardType": 10,
+    "barcodePath": "279307950.png",
+    "totalBet": 120,
+    "ticket": {
+      "id": 198,
+      "user_id": 1,
+      "serial_number": "279307950",
+      "bar_code_scanner": "279307950.png",
+      "amount": 120,
+      "card_name": "{\"8\":10,\"9\":10,\"10\":10,\"11\":10,\"4\":10,\"5\":10,\"6\":10,\"7\":10,\"0\":10,\"1\":10,\"2\":10,\"3\":10}",
+      "retailer_id": 5,
+      "created_at": "2025-05-31 09:10:48",
+      "updated_at": "2025-05-31 09:10:48"
+    }
+  }
+}
+[Printer] Detected OS: Windows
+[Printer] Found printer: 'Microsoft Print to PDF'. Sending job now...
+[Printer] Print job #38 completed successfully on 'Microsoft Print to PDF'.
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "tkinter\__init__.py", line 2068, in __call__
+  File "login_page.py", line 79, in validate_login
+  File "main_app.py", line 199, in launch_main_app
+  File "wheel_module.py", line 481, in handle_click
+  File "encodings\cp1252.py", line 19, in encode
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 0: character maps to <undefined>
+pygame 2.6.1 (SDL 2.28.4, Python 3.13.3)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+Withdraw_time (from wheel_module): 09:15
+pygame 2.6.1 (SDL 2.28.4, Python 3.13.3)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+Withdraw_time (from wheel_module): 09:17
+Exception in Tkinter callback
+Traceback (most recent call last):
+  File "tkinter\__init__.py", line 2068, in __call__
+  File "login_page.py", line 79, in validate_login
+  File "main_app.py", line 199, in launch_main_app
+  File "wheel_module.py", line 481, in handle_click
+  File "encodings\cp1252.py", line 19, in encode
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 0: character maps to <undefined>

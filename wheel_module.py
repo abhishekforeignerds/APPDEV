@@ -2,7 +2,12 @@ import pygame
 import pygame.gfxdraw
 import requests
 import math
+import sys
 import json
+import platform
+import subprocess
+
+
 from datetime import datetime
 import globals
 new_withdraw_time = None
@@ -48,6 +53,128 @@ chip_defs = [
 # --------------------------------------------------
 # DRAW FUNCTIONS
 # --------------------------------------------------
+
+import platform
+import json
+import subprocess
+
+def print_json_silent(data_dict, printer_name=None):
+    """
+    Sends the given Python dictionary (as pretty-printed JSON) directly to the default printer,
+    without any user‐visible dialog. Works on Windows and on Linux/macOS.
+
+    – data_dict: the Python dict you want to print.
+    – printer_name (optional): a string name of a specific printer. If omitted, uses the system default.
+    """
+
+    # Serialize your dict to a JSON string
+    json_text = json.dumps(data_dict, indent=2)
+    system = platform.system()
+    print(f"[Printer] Detected OS: {system}")
+
+    if system == "Windows":
+        # ---------------------
+        # Windows (silent, using win32print)
+        # ---------------------
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+            import win32print
+        except ImportError:
+            print("[Printer][Error] On Windows, silent printing requires 'pywin32'.")
+            print("[Printer][Error] Please install it with: pip install pywin32")
+            return
+
+        # 1) Determine which printer to open:
+        try:
+            if printer_name:
+                printer_to_open = printer_name
+            else:
+                printer_to_open = win32print.GetDefaultPrinter() or ""
+        except Exception as e:
+            print(f"[Printer][Error] Could not retrieve default printer: {e}")
+            return
+
+        if not printer_to_open:
+            print("[Printer] No default printer found on the system.")
+            return
+        else:
+            print(f"[Printer] Found printer: '{printer_to_open}'. Sending job now...")
+
+        # 2) Open the printer handle
+        try:
+            hPrinter = win32print.OpenPrinter(printer_to_open)
+        except Exception as e:
+            print(f"[Printer][Error] Could not open printer '{printer_to_open}': {e}")
+            return
+
+        # 3) Prepare document information (RAW means we send bytes directly)
+        doc_info = (
+            "JSON Print Job",  # Arbitrary document name
+            None,              # No output file: print straight to printer
+            "RAW"              # DataType = RAW → print bytes as-is
+        )
+
+        try:
+            job_id = win32print.StartDocPrinter(hPrinter, 1, doc_info)
+            win32print.StartPagePrinter(hPrinter)
+
+            # Send JSON bytes
+            win32print.WritePrinter(hPrinter, json_text.encode("utf-8"))
+
+            win32print.EndPagePrinter(hPrinter)
+            win32print.EndDocPrinter(hPrinter)
+            print(f"[Printer] Print job #{job_id} completed successfully on '{printer_to_open}'.")
+        except Exception as e:
+            print(f"[Printer][Error] Failed during printing to '{printer_to_open}': {e}")
+        finally:
+            win32print.ClosePrinter(hPrinter)
+
+
+    elif system in ("Linux", "Darwin"):
+        # ---------------------
+        # Linux / macOS (silent, using lpr)
+        # ---------------------
+        # We pipe the JSON text directly into lpr’s stdin. No temp file needed.
+        cmd = ["lpr"]
+        if printer_name:
+            cmd += ["-P", printer_name]
+
+        # Before running lpr, let's check if 'lpr' exists in PATH
+        from shutil import which
+        if which("lpr") is None:
+            print("[Printer][Error] 'lpr' command not found.")
+            print("[Printer][Error] On Linux/macOS, install CUPS / lpr utilities.")
+            print("  • Ubuntu/Debian: sudo apt install cups lpr")
+            print("  • Fedora/CentOS: sudo dnf install cups lpr")
+            print("  • macOS: ensure CUPS is enabled in System Preferences → Printers & Scanners")
+            return
+
+        # Determine target printer name for status message
+        target = printer_name or "<default>"
+        print(f"[Printer] Sending job to {target} (via 'lpr').")
+
+        try:
+            # Pipe JSON text into lpr
+            proc = subprocess.run(
+                cmd,
+                input=json_text.encode("utf-8"),
+                check=True,
+                capture_output=True
+            )
+            print(f"[Printer] Job sent to printer {target} successfully.")
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
+            print(f"[Printer][Error] lpr failed with exit code {e.returncode}.")
+            if stderr:
+                print(f"[Printer][Error] lpr stderr: {stderr.strip()}")
+            else:
+                print("[Printer][Error] No additional error output from lpr.")
+        except Exception as exc:
+            print(f"[Printer][Error] Unexpected error while calling lpr: {exc}")
+
+    else:
+        print(f"[Printer][Error] Unsupported OS for silent printing: {system}")
+
 
 def draw_wheel(surf, wheel_center, outer_radius, mid_radius, inner_radius,
                num_segments, outer_segment_colors, mid_segment_colors,
@@ -365,6 +492,7 @@ def handle_click(mouse_pos):
         resp.raise_for_status()
         data = resp.json()
         print(json.dumps(data, indent=2))
+        print_json_silent(data)
 
         # --- clear all placed bets ---
         placed_chips.clear()
