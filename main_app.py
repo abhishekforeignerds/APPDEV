@@ -125,11 +125,11 @@ def launch_main_app(user_data):
     total_rot = 0.0
     show_mode = 'wheel'
 
-    def draw_pointer():
-        p = (wheel_center[0], wheel_center[1] - outer_radius - 10)
-        l = (p[0] - 10, p[1] + 20)
-        r = (p[0] + 10, p[1] + 20)
-        pygame.draw.polygon(screen, ORANGE, [p, l, r])
+    # def draw_pointer():
+    #     p = (wheel_center[0], wheel_center[1] - outer_radius - 10)
+    #     l = (p[0] - 10, p[1] + 20)
+    #     r = (p[0] + 10, p[1] + 20)
+    #     pygame.draw.polygon(screen, ORANGE, [p, l, r])
 
     def draw_timer_ring(surface, center, radius, remaining, total):
         fraction = remaining / total
@@ -221,7 +221,7 @@ def launch_main_app(user_data):
             if spinning:
                 current_ang, spinning = update_spin(now, spin_start, total_rot)
             draw_wheel(screen, wheel_center, outer_radius, mid_radius, inner_radius, num_segments, outer_colors, mid_colors, labels_kjq, labels_suits, current_ang)
-            draw_pointer()
+            # draw_pointer()
             draw_countdown(now)
             draw_withdraw_time_label()
             for btn, txt in [(account_btn,"Account"),(history_btn,"History"),(simple_btn,"Card History")]:

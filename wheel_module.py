@@ -279,13 +279,19 @@ import math
 # Color and drawing constants
 TABLE_BG             = (30, 30, 30)       # Wheel background
 GRID                 = (200, 200, 200)    # Wheel segment borders
-GOLDEN               = (255, 215, 0)      # “Golden” fill for the inner circle
+GOLDEN               = (255, 215, 0)      # “Golden” fill for the inner circle (no longer used for segments)
 SHADOW_COLOR         = (0, 0, 0, 80)      # Semi-transparent black for drop shadow
 RIBBON_COLOR_RGB     = (0, 0, 255)        # Blue ribbon color
 RIBBON_ALPHA         = 200                # Out of 255, for slight translucency
 SHADOW_OFFSET        = 8                  # Pixels to offset the wheel’s drop shadow
 ANGLE_STEPS          = 120                # Increase for even smoother arcs
 ARROW_COLOR          = (148, 0, 211)      # Violet for all arrows
+
+def draw_pointer(screen, wheel_center, outer_radius):
+    p = (wheel_center[0], wheel_center[1] - outer_radius - 10)
+    l = (p[0] - 10, p[1] + 20)
+    r = (p[0] + 10, p[1] + 20)
+    pygame.draw.polygon(screen, (255, 165, 0), [p, l, r])  # ORANGE = (255, 165, 0)
 
 def _generate_hsv_palette(num_segments, saturation=80, value=100, alpha=255):
     """
@@ -297,14 +303,6 @@ def _generate_hsv_palette(num_segments, saturation=80, value=100, alpha=255):
     """
     palette = []
     for i in range(num_segments):
-        # You could do something like:
-        #   hue = (((i / num_segments) * 360) + 30) % 360
-        # to shift the entire wheel by 30°, thus no slice is pure‐yellow.
-        #
-        # For now, we keep it unshifted. If “yellow marker” reappears,
-        # uncomment the next line and adjust the offset as you like:
-        # hue = (((i / num_segments) * 360) + 30) % 360  # ←— avoid exact yellow
-
         hue = (i / num_segments) * 360
         c = pygame.Color(0)
         c.hsva = (hue, saturation, value, alpha)
@@ -331,13 +329,15 @@ def draw_wheel(
       3. Automatically generated HSV palettes (unless you pass your own).
          - To avoid any “yellow”‐colored slice, you can shift the hue in
            _generate_hsv_palette as shown above.
-      4. A static arrow at the inner circumference (pointing up), in violet.
+      4. A static arrow at the inner circumference (pointing up), in violet,
+         now matching the size of the outer pointer.
       5. Alternating blinking RGB “LED” dots and sharper violet arrows
          exactly on a blue ribbon.
       6. A semi‐translucent blue “ribbon” around the outer circle (fixed pos).
       7. All radii and positions scale with window size.
       8. Arrow borders are drawn in the same violet color for smooth edges.
-      9. The inner circle is now smaller and filled with GOLDEN color.
+      9. The inner circle is now divided into the smallest segments, alternating dark/light gold.
+     10. Suit icons on the mid ring are scaled dynamically based on screen size.
     """
 
     # --------------------------------------------------
@@ -349,16 +349,14 @@ def draw_wheel(
     # Base radii multipliers
     outer_radius = int(min_dim * 0.37)
     mid_radius   = int(min_dim * 0.22)
-    inner_radius = int(min_dim * 0.07)   # Reduced from 0.09 to 0.07 for a smaller circle
+    inner_radius = int(min_dim * 0.07)   # Smallest circle
 
-    # Static inner arrow sizes
-    inner_arrow_height = max(int(min_dim * 0.02), 3)
-    inner_arrow_width  = max(int(min_dim * 0.05), 5)
+    # Override arrow sizes so all arrows match the pointer size
+    inner_arrow_height = 20
+    inner_arrow_width  = 20
 
-    # Compute “sharper” dimensions for ribbon arrows
-    # Height = 4% of min_dim (at least 6px), width = 4% (at least 4px)
-    ribbon_arrow_height = max(int(min_dim * 0.04), 6)
-    ribbon_arrow_width  = max(int(min_dim * 0.04), 4)
+    ribbon_arrow_height = 20
+    ribbon_arrow_width  = 20
 
     # Dot radius (for LED dots)
     dot_radius = max(int(min_dim * 0.01), 3)
@@ -492,36 +490,44 @@ def draw_wheel(
         pygame.draw.polygon(temp_surf, (0, 0, 0), pts, 1)
 
     # --------------------------------------------------
-    # 7. Draw suit icons on the mid ring
+    # 7. Draw suit icons on the mid ring (scaled for screen size)
     # --------------------------------------------------
+    # Determine a dynamic size for suit icons (e.g., 30% of mid_radius)
+    suit_icon_size = int(mid_radius * 0.3)
+
     suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
     for i in range(num_segments):
         suit_name = suits[i % 4]
         img = labels_suits[suit_name]
+        # Scale the image to (suit_icon_size × suit_icon_size)
+        scaled_img = pygame.transform.smoothscale(img, (suit_icon_size, suit_icon_size))
 
         angle = math.radians((i + 0.5) * 360 / num_segments) + current_rad
         px = int(temp_center[0] + mid_radius * 0.75 * math.cos(angle))
         py = int(temp_center[1] + mid_radius * 0.75 * math.sin(angle))
 
-        temp_surf.blit(img, img.get_rect(center=(px, py)))
+        temp_surf.blit(scaled_img, scaled_img.get_rect(center=(px, py)))
 
     # --------------------------------------------------
-    # 8. Draw the inner circle (now smaller and filled GOLDEN)
+    # 8. Draw the inner circle as the smallest segments (alternating dark/light gold)
     # --------------------------------------------------
-    pygame.gfxdraw.filled_circle(
-        temp_surf,
-        temp_center[0],
-        temp_center[1],
-        inner_radius,
-        (GOLDEN[0], GOLDEN[1], GOLDEN[2], 255)
-    )
-    pygame.gfxdraw.aacircle(
-        temp_surf,
-        temp_center[0],
-        temp_center[1],
-        inner_radius,
-        (0, 0, 0, 255)
-    )
+    DARK_GOLD  = (184, 134, 11, 255)  # dark-goldenrod
+    LIGHT_GOLD = (184, 134, 30, 255)   # light gold
+
+    for i in range(num_segments):
+        start_ang = math.radians(i * 360 / num_segments)
+        end_ang   = start_ang + math.radians(360 / num_segments)
+
+        pts = [temp_center]
+        for s in range(ANGLE_STEPS + 1):
+            a = start_ang + (end_ang - start_ang) * (s / ANGLE_STEPS)
+            x = temp_center[0] + inner_radius * math.cos(a)
+            y = temp_center[1] + inner_radius * math.sin(a)
+            pts.append((int(x), int(y)))
+
+        color = DARK_GOLD if (i % 2 == 0) else LIGHT_GOLD
+        pygame.gfxdraw.filled_polygon(temp_surf, pts, color)
+        pygame.draw.polygon(temp_surf, (0, 0, 0), pts, 1)
 
     # --------------------------------------------------
     # 9. Draw a semi‐translucent blue “ribbon” around the outer edge (fixed position)
@@ -608,11 +614,11 @@ def draw_wheel(
                 [p_tip, p_base1, p_base2],
                 ARROW_COLOR + (255,)
             )
-            # No separate border draw; using filled_polygon with ARROW_COLOR ensures smooth edges.
+            # No separate border draw; filled polygon with ARROW_COLOR yields smooth edges.
 
     # --------------------------------------------------
     # 11. Draw static arrow at the top of the inner circumference (pointing up), in violet
-    #     Border also in violet for smoothness.
+    #     Now matching the pointer size (20×20)
     # --------------------------------------------------
     tip_inner_r = inner_radius + inner_arrow_height
     tip_inner_x = temp_center[0]
@@ -672,6 +678,16 @@ def update_spin(current_time, spin_start, total_rotation):
     return ang % 360, spinning
 
 
+TABLE_BG       = (30, 30, 30)
+WHITE          = (255, 255, 255)
+BLUE_BG        = (0, 102, 204)
+RED            = (200, 0, 0)
+BUTTON_BG      = (50, 50, 50)
+BUTTON_BORDER  = (200, 200, 200)
+GOLDEN         = (255, 215, 0)
+BLACK          = (0, 0, 0)
+SHADOW_COLOR   = (0, 0, 0, 100)
+
 def draw_left_table(
     surf,
     now_ts,
@@ -687,19 +703,16 @@ def draw_left_table(
 ):
     """
     Draws:
-      1) A table of blue cells (rows × cols) with a “Withdraw time” header row
-         (suit icons) and a rank column (K/Q/J).
-      2) A tray of chips below the table.
-      3) Any chips that have been placed on the blue cells, showing their total amount.
-      4) A visible text displaying the current total bet.
-      5) A “Bet” button to submit placed bets via POST.
-
-    SIDE EFFECTS (globals):
-      - chip_rects: list of pygame.Rect for each chip in the tray
-      - cell_rects: dict mapping (ridx, cidx) → pygame.Rect of each blue cell
-      - rank_icon_rects: dict mapping ridx → pygame.Rect of each rank icon
-      - suit_icon_rects: dict mapping cidx → pygame.Rect of each suit icon
-      - bet_button_rect: pygame.Rect defining the “Bet” button area
+      1) A table of blue “play” cells (rows × cols) with a drop shadow.
+      2) Header row: first cell (“Withdraw time”) centered; columns 1–4: suit image +
+         a wider, shorter golden box containing a smaller “Play” circle, with an attached
+         taller label box above reading “All <SuitPlural>”.
+      3) First column for rows 1–3: rank image + a wider, shorter golden box containing
+         a smaller “Play” circle, with an attached taller label box above reading “All <RankPlural>”.
+      4) A tray of chips below the table.
+      5) Any chips placed on the blue cells, showing their total amount.
+      6) A visible text displaying the current total bet.
+      7) A “Bet” button to submit placed bets via POST.
     """
     global chip_rects, cell_rects, rank_icon_rects, suit_icon_rects, bet_button_rect
     chip_rects       = []
@@ -713,41 +726,238 @@ def draw_left_table(
     table_h   = int(sh * 0.60)
     cell_h    = table_h // rows
     col_w     = table_w // cols
-    radius    = 8
+    radius    = 12
 
-    # 1) Draw table background & grid lines
+    # 0) Draw drop shadow for table
+    shadow_surf = pygame.Surface((table_w, table_h), pygame.SRCALPHA)
+    shadow_surf.fill(SHADOW_COLOR)
+    surf.blit(shadow_surf, (x0 + 5, y0 + 5))
+
+    # 1) Draw table background (no rounded corners)
     table_rect = pygame.Rect(x0, y0, table_w, table_h)
     pygame.draw.rect(surf, TABLE_BG, table_rect)
 
-    for i in range(cols + 1):
-        x = x0 + i * col_w
-        pygame.draw.line(surf, WHITE, (x, y0), (x, y0 + table_h), 2)
-    for j in range(rows + 1):
-        y = y0 + j * cell_h
-        pygame.draw.line(surf, WHITE, (x0, y), (x0 + table_w, y), 2)
+    # 2) Header row: first cell (“Withdraw time”) centered
+    header_cell = pygame.Rect(x0, y0, col_w, cell_h)
+    time_str    = datetime.fromtimestamp(now_ts).strftime("%H:%M:%S")
+    label_surf  = small_font.render("Withdraw time:", True, WHITE)
+    value_surf  = small_font.render(time_str, True, WHITE)
+    center_x    = header_cell.centerx
+    center_y    = header_cell.centery
+    surf.blit(
+        label_surf,
+        (
+            center_x - label_surf.get_width() / 2,
+            center_y - label_surf.get_height()
+        )
+    )
+    surf.blit(
+        value_surf,
+        (
+            center_x - value_surf.get_width() / 2,
+            center_y + 2
+        )
+    )
 
-    # 2) Header row: “Withdraw time” + live clock + suit icons
-    time_str = datetime.fromtimestamp(now_ts).strftime("%H:%M:%S")
-    surf.blit(small_font.render("Withdraw time:", True, WHITE), (x0 + 10, y0 + 5))
-    surf.blit(small_font.render(globals.Withdraw_time, True, WHITE), (x0 + 10, y0 + 25))
+    # Prepare a smaller label font for attached boxes
+    label_font = pygame.font.Font(None, max(6, int(small_font.get_height() * 0.6)))
 
+    # 3) Header row columns 1–4: suit image + wider/shorter golden box w/ “Play” circle + taller label
     suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
     for i, suit in enumerate(suits, start=1):
         cell = pygame.Rect(x0 + col_w * i, y0, col_w, cell_h)
-        img  = pygame.transform.smoothscale(labels_suits[suit], (suit_size, suit_size))
-        surf.blit(img, img.get_rect(center=cell.center))
         suit_icon_rects[i] = cell
 
-    # 3) Draw rank‐column and each blue “play” cell
-    ribbon_font = pygame.font.Font(None, max(8, int(small_font.get_height() * 0.8)))
-    ranks = ['K', 'Q', 'J']
+        # Determine smaller circle radius for “Play”
+        circle_radius = int(min(col_w, cell_h) * 0.18)
+        circle_dia    = circle_radius * 2
 
+        # Padding inside golden box
+        box_pad_horiz = int(circle_radius * 0.5)
+        box_pad_vert  = int(circle_radius * 0.5)
+
+        # Use full suit_size for slightly bigger suit icon
+        img_w = suit_size
+        img_h = suit_size
+
+        # Total width: image + padding + circle diameter, then increase by 30%
+        base_w = img_w + box_pad_horiz + circle_dia
+        total_w = base_w * 1.3
+        # Label box height
+        label_text   = f"All {suit}{'s' if suit not in ('Spades','Clubs') else ''}"
+        label_surf2  = label_font.render(label_text, True, BLACK)
+        label_h      = label_surf2.get_height() + 8  # 8px vertical padding
+        # Total height: max(img_h, circle_dia) + padding*2, then decrease by 10%
+        base_h       = max(img_h, circle_dia) + box_pad_vert * 2
+        total_h      = base_h * 0.9
+
+        # Move everything slightly up (10 pixels)
+        y_offset = 10
+
+        # Compute golden box rectangle
+        box_left = cell.centerx - total_w / 2
+        box_top  = cell.centery - total_h / 2 - y_offset + label_h / 2
+        golden_box = pygame.Rect(int(box_left), int(box_top), int(total_w), int(total_h))
+
+        # Draw golden box background with rounded corners
+        pygame.draw.rect(surf, GOLDEN, golden_box, border_radius=radius//2)
+
+        # Position suit image inside golden box (left side, centered vertically)
+        img = pygame.transform.smoothscale(labels_suits[suit], (img_w, img_h))
+        img_rect = img.get_rect()
+        img_rect.center = (
+            int(box_left + img_w / 2),
+            int(box_top + total_h / 2)
+        )
+        surf.blit(img, img_rect)
+
+        # Position circle center (right side inside golden box)
+        circle_center_x = int(box_left + img_w + box_pad_horiz + circle_radius)
+        circle_center_y = int(box_top + total_h / 2)
+
+        # Draw Play circle with black border and black text
+        pygame.gfxdraw.filled_circle(
+            surf,
+            circle_center_x,
+            circle_center_y,
+            circle_radius,
+            GOLDEN
+        )
+        pygame.gfxdraw.aacircle(
+            surf,
+            circle_center_x,
+            circle_center_y,
+            circle_radius,
+            BLACK
+        )
+
+        # Draw “Play” text in black, smaller font
+        play_surf = label_font.render("Play", True, BLACK)
+        surf.blit(
+            play_surf,
+            (
+                circle_center_x - play_surf.get_width() / 2,
+                circle_center_y - play_surf.get_height() / 2
+            )
+        )
+
+        # 3a) Draw attached label box above golden box (no border), less width and more height
+        label_box_w = total_w * 0.8
+        label_box_h = label_h * 1.3
+        label_box_left = box_left + (total_w - label_box_w) / 2
+        label_box_top  = box_top - label_box_h
+        label_box = pygame.Rect(int(label_box_left), int(label_box_top), int(label_box_w), int(label_box_h))
+        pygame.draw.rect(surf, GOLDEN, label_box, border_radius=radius//2)
+
+        # Draw label text centered in label box (black text)
+        surf.blit(
+            label_surf2,
+            (
+                label_box.centerx - label_surf2.get_width() / 2,
+                label_box.centery - label_surf2.get_height() / 2
+            )
+        )
+
+    # 4) First column rows 1–3: rank image + wider/shorter golden box w/ “Play” circle + taller label
+    ranks = ['K', 'Q', 'J']
+    rank_label_map = {'K': 'All Kings', 'Q': 'All Queens', 'J': 'All Jacks'}
     for ridx, rank in enumerate(ranks, start=1):
         cell_rank = pygame.Rect(x0, y0 + ridx * cell_h, col_w, cell_h)
-        img_rank  = pygame.transform.smoothscale(labels_kjq[rank], (label_size, label_size))
-        surf.blit(img_rank, img_rank.get_rect(center=cell_rank.center))
         rank_icon_rects[ridx] = cell_rank
 
+        # Determine smaller circle radius for “Play”
+        circle_radius = int(min(col_w, cell_h) * 0.18)
+        circle_dia    = circle_radius * 2
+
+        # Padding for golden box
+        box_pad_horiz = int(circle_radius * 0.5)
+        box_pad_vert  = int(circle_radius * 0.5)
+
+        # Use full label_size for rank icon
+        img_w = label_size
+        img_h = label_size
+
+        # Total width: image + padding + circle diameter, then increase by 30%
+        base_w = img_w + box_pad_horiz + circle_dia
+        total_w = base_w * 1.3
+        # Label box height
+        label_text   = rank_label_map[rank]
+        label_surf2  = label_font.render(label_text, True, BLACK)
+        label_h      = label_surf2.get_height() + 8
+        # Total height: max(img_h, circle_dia) + padding*2, then decrease by 10%
+        base_h       = max(img_h, circle_dia) + box_pad_vert * 2
+        total_h      = base_h * 0.9
+
+        # Move everything slightly up
+        y_offset = 10
+
+        # Compute golden box rectangle
+        box_left = cell_rank.centerx - total_w / 2
+        box_top  = cell_rank.centery - total_h / 2 - y_offset + label_h / 2
+        golden_box = pygame.Rect(int(box_left), int(box_top), int(total_w), int(total_h))
+
+        # Draw golden box background with rounded corners
+        pygame.draw.rect(surf, GOLDEN, golden_box, border_radius=radius//2)
+
+        # Position rank image inside golden box (left side)
+        img_rank = pygame.transform.smoothscale(labels_kjq[rank], (img_w, img_h))
+        img_rect = img_rank.get_rect()
+        img_rect.center = (
+            int(box_left + img_w / 2),
+            int(box_top + total_h / 2)
+        )
+        surf.blit(img_rank, img_rect)
+
+        # Position circle center (right side)
+        circle_center_x = int(box_left + img_w + box_pad_horiz + circle_radius)
+        circle_center_y = int(box_top + total_h / 2)
+
+        # Draw Play circle with black border and black text
+        pygame.gfxdraw.filled_circle(
+            surf,
+            circle_center_x,
+            circle_center_y,
+            circle_radius,
+            GOLDEN
+        )
+        pygame.gfxdraw.aacircle(
+            surf,
+            circle_center_x,
+            circle_center_y,
+            circle_radius,
+            BLACK
+        )
+
+        # Draw “Play” text in black
+        play_surf = label_font.render("Play", True, BLACK)
+        surf.blit(
+            play_surf,
+            (
+                circle_center_x - play_surf.get_width() / 2,
+                circle_center_y - play_surf.get_height() / 2
+            )
+        )
+
+        # 4a) Draw attached label box above golden box (no border), less width and more height
+        label_box_w = total_w * 0.8
+        label_box_h = label_h * 1.3
+        label_box_left = box_left + (total_w - label_box_w) / 2
+        label_box_top  = box_top - label_box_h
+        label_box = pygame.Rect(int(label_box_left), int(label_box_top), int(label_box_w), int(label_box_h))
+        pygame.draw.rect(surf, GOLDEN, label_box, border_radius=radius//2)
+
+        # Draw label text centered in label box (black text)
+        surf.blit(
+            label_surf2,
+            (
+                label_box.centerx - label_surf2.get_width() / 2,
+                label_box.centery - label_surf2.get_height() / 2
+            )
+        )
+
+    # 5) Draw blue “play” cells for the interior (rows 1–3, cols 1–4)
+    ribbon_font = pygame.font.Font(None, max(6, int(small_font.get_height() * 0.6)))
+    for ridx, rank in enumerate(ranks, start=1):
         for cidx, suit in enumerate(suits, start=1):
             cell = pygame.Rect(
                 x0 + col_w * cidx,
@@ -755,6 +965,7 @@ def draw_left_table(
                 col_w,
                 cell_h
             )
+            # Inset a blue box within this cell
             box_w = col_w * 0.7
             box_h = cell_h * 0.9
             inset_x = cell.left + (col_w - box_w) / 2
@@ -763,14 +974,16 @@ def draw_left_table(
 
             cell_rects[(ridx, cidx)] = blue_box
 
-            pygame.draw.rect(surf, BLUE_BG, blue_box, border_radius=radius)
-            pygame.draw.rect(surf, WHITE, blue_box, 2, border_radius=radius)
+            pygame.draw.rect(surf, BLUE_BG, blue_box, border_radius=radius//3)
+            pygame.draw.rect(surf, BLACK, blue_box, 1, border_radius=radius//3)
 
+            # Within blue box, draw rank + suit icons (use full suit_size)
             total_w = label_size + suit_size + 8
-            yc = blue_box.centery
+            yc      = blue_box.centery
+            img_rank_scaled = pygame.transform.smoothscale(labels_kjq[rank], (label_size, label_size))
             surf.blit(
-                img_rank,
-                img_rank.get_rect(
+                img_rank_scaled,
+                img_rank_scaled.get_rect(
                     center=(int(blue_box.centerx - total_w/2 + label_size/2), yc)
                 )
             )
@@ -782,6 +995,7 @@ def draw_left_table(
                 )
             )
 
+            # Draw red “Play” ribbon at bottom of blue box
             ribbon_h = box_h * 0.2
             ribbon_w = box_w * 1.05
             ribbon_x = blue_box.left - (ribbon_w - box_w) / 2
@@ -798,10 +1012,10 @@ def draw_left_table(
                 surf,
                 [ribbon_rect.topleft, ribbon_rect.topright,
                  ribbon_rect.bottomright, ribbon_rect.bottomleft],
-                WHITE
+                BLACK
             )
 
-            play_surf = ribbon_font.render("Play", True, WHITE)
+            play_surf = ribbon_font.render("Play", True, BLACK)
             surf.blit(
                 play_surf,
                 (
@@ -810,23 +1024,23 @@ def draw_left_table(
                 )
             )
 
-    # 4) Draw all placed chips on the table
+    # 6) Draw any placed chips on the blue cells
     for (ridx, cidx), total_amt in placed_chips.items():
         if (ridx, cidx) in cell_rects:
             center_x = cell_rects[(ridx, cidx)].centerx
             center_y = cell_rects[(ridx, cidx)].centery
             chip_radius = min(cell_h, col_w) // 6
             pygame.gfxdraw.filled_circle(surf, center_x, center_y, chip_radius, chip_defs[0]['color'])
-            pygame.gfxdraw.aacircle(surf, center_x, center_y, chip_radius, WHITE)
+            pygame.gfxdraw.aacircle(surf, center_x, center_y, chip_radius, BLACK)
             amt_surf = small_font.render(str(total_amt), True, WHITE)
             surf.blit(amt_surf, amt_surf.get_rect(center=(center_x, center_y)))
 
-    # 5) Draw chip “tray” below the table
-    chip_radius = min(cell_h, col_w) // 6
-    chip_dia    = chip_radius * 2
-    chip_spacing= chip_dia + 10
-    start_x     = x0 + 10
-    chips_y     = y0 + table_h + chip_radius + 20
+    # 7) Draw chip “tray” below the table
+    chip_radius  = min(cell_h, col_w) // 6
+    chip_dia     = chip_radius * 2
+    chip_spacing = chip_dia + 10
+    start_x      = x0 + 10
+    chips_y      = y0 + table_h + chip_radius + 20
 
     angle = (now_ts * 360) % 360
 
@@ -836,7 +1050,7 @@ def draw_left_table(
 
         base_chip_surf = pygame.Surface((chip_dia, chip_dia), pygame.SRCALPHA)
         pygame.gfxdraw.filled_circle(base_chip_surf, chip_radius, chip_radius, chip_radius, chip['color'])
-        pygame.gfxdraw.aacircle(base_chip_surf, chip_radius, chip_radius, chip_radius, WHITE)
+        pygame.gfxdraw.aacircle(base_chip_surf, chip_radius, chip_radius, chip_radius, BLACK)
         amt_surf = small_font.render(str(chip['amount']), True, WHITE)
         base_chip_surf.blit(amt_surf, amt_surf.get_rect(center=(chip_radius, chip_radius)))
 
@@ -849,22 +1063,22 @@ def draw_left_table(
             surf.blit(base_chip_surf, base_chip_surf.get_rect(center=(int(cx), int(cy))))
             chip_rects.append(pygame.Rect(int(cx - chip_radius), int(cy - chip_radius), chip_dia, chip_dia))
 
-    # 6) Draw “Current Bet” text
+    # 8) Draw “Current Bet” text
     total_bet = sum(placed_chips.values())
-    bet_text = small_font.render(f"Current Bet: {total_bet}", True, WHITE)
+    bet_text   = small_font.render(f"Current Bet: {total_bet}", True, WHITE)
     surf.blit(bet_text, (x0 + 10, chips_y + chip_dia + 10))
     text_h = small_font.get_height()
 
-    # 7) Draw “Bet” button below the text
-    btn_w, btn_h = 100, 30
+    # 9) Draw “Bet” button below the text
+    btn_w = 100
+    btn_h = 30
     btn_x = x0 + 10
     btn_y = chips_y + chip_dia + 10 + text_h + 10
     bet_button_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
-    pygame.draw.rect(surf, BUTTON_BG, bet_button_rect, border_radius=4)
-    pygame.draw.rect(surf, BUTTON_BORDER, bet_button_rect, 2, border_radius=4)
+    pygame.draw.rect(surf, BUTTON_BG, bet_button_rect)
+    pygame.draw.rect(surf, BUTTON_BORDER, bet_button_rect, 1)
     btn_txt = small_font.render("Bet", True, WHITE)
     surf.blit(btn_txt, btn_txt.get_rect(center=bet_button_rect.center))
-
 
 def handle_click(mouse_pos):
     """

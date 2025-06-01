@@ -1,71 +1,38 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
-
-# 1) List your image‐and‐asset files here. Each tuple is ("source_filename", "destination_folder_inside_EXE").
-datas = [
-    ("overlay-bg.jpg", "."),
-    ("background.jpg", "."),
-    ("golden-clubs.png", "."),
-    ("golden-diamond.png", "."),
-    ("golden-hearts.png", "."),
-    ("golden-spades.png", "."),
-    ("golden-k.png", "."),
-    ("golden-j.png", "."),
-    ("golden-q.png", "."),
-]
-
-# 2) Force PyInstaller to bundle every ReportLab barcode submodule automatically.
-#    This will include code128, code93, code39, eanbc, usps, gs1, qr, itextpdf, etc.
-#    In practice, it collects all .py files under reportlab.graphics.barcode.
-hidden_imports = collect_submodules("reportlab.graphics.barcode")
-
-# 3) If your .py files (login_page.py, main_app.py, wheel_module.py, etc.) live in a subfolder,
-#    add that folder path here. Otherwise, leave as an empty list.
-pathex = []
-
-block_cipher = None
 
 a = Analysis(
-    ["login_page.py"],
-    pathex=pathex,
+    ['login_page.py'],
+    pathex=[],
     binaries=[],
-    datas=datas,
-    hiddenimports=hidden_imports,
+    datas=[('overlay-bg.jpg', '.'), ('background.jpg', '.'), ('golden-clubs.png', '.'), ('golden-diamond.png', '.'), ('golden-hearts.png', '.'), ('golden-spades.png', '.'), ('golden-k.png', '.'), ('golden-j.png', '.'), ('golden-q.png', '.')],
+    hiddenimports=['reportlab.graphics.barcode.code128', 'reportlab.graphics.barcode.code93', 'reportlab.graphics.barcode.code39', 'reportlab.graphics.barcode.eanbc', 'reportlab.graphics.barcode.usps', 'reportlab.graphics.barcode.usps4s', 'reportlab.graphics.barcode.ecc200datamatrix', 'reportlab.graphics.barcode.dmtx', 'reportlab.graphics.barcode.qr', 'reportlab.graphics.barcode.qrencoder'],
     hookspath=[],
+    hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
+    noarchive=False,
+    optimize=0,
 )
-
-pyz = PYZ(
-    a.pure,
-    a.zipped_data,
-    cipher=block_cipher,
-)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
-    name="login_page",
+    name='login_page',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,   # <-- same as --noconsole
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    name="login_page",
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )
