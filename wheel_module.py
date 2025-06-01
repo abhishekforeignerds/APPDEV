@@ -177,7 +177,7 @@ def print_json_silent(data_dict, printer_name=None):
     c.drawCentredString(width / 2, y, footer_text)
 
     c.showPage()
-    # c.save()
+    c.save()
     print(f"[Printer][Info] PDF saved: {pdf_filename}")
 
     # --- 3) Send PDF to the printer silently ---
@@ -269,68 +269,386 @@ def print_json_silent(data_dict, printer_name=None):
         print(f"[Printer][Error] Unsupported OS for printing: {system}")
 
 
-def draw_wheel(surf, wheel_center, outer_radius, mid_radius, inner_radius,
-               num_segments, outer_segment_colors, mid_segment_colors,
-               labels_kjq, labels_suits, current_ang):
+# --------------------------------------------------
+# COLORS (feel free to tweak or replace)
+# --------------------------------------------------
+import pygame
+import pygame.gfxdraw
+import math
+
+# Color and drawing constants
+TABLE_BG             = (30, 30, 30)       # Wheel background
+GRID                 = (200, 200, 200)    # Wheel segment borders
+GOLDEN               = (255, 215, 0)      # “Golden” fill for the inner circle
+SHADOW_COLOR         = (0, 0, 0, 80)      # Semi-transparent black for drop shadow
+RIBBON_COLOR_RGB     = (0, 0, 255)        # Blue ribbon color
+RIBBON_ALPHA         = 200                # Out of 255, for slight translucency
+SHADOW_OFFSET        = 8                  # Pixels to offset the wheel’s drop shadow
+ANGLE_STEPS          = 120                # Increase for even smoother arcs
+ARROW_COLOR          = (148, 0, 211)      # Violet for all arrows
+
+def _generate_hsv_palette(num_segments, saturation=80, value=100, alpha=255):
     """
-    Draw the spinning wheel with outer K/J/Q icons and mid‐level suits,
-    preserving segment count and original TABLE_BG background.
+    Create a list of length num_segments of pygame.Color objects
+    evenly spaced around the HSV color wheel. Alpha is constant.
+
+    If you want to avoid a pure‐yellow (≈60°) segment, you can add an offset
+    here. For example, add +30 to each hue so no index lands exactly at 60°.
     """
-    pygame.gfxdraw.filled_circle(surf, wheel_center[0], wheel_center[1], outer_radius, TABLE_BG)
-    pygame.gfxdraw.aacircle(surf, wheel_center[0], wheel_center[1], outer_radius, GRID)
+    palette = []
+    for i in range(num_segments):
+        # You could do something like:
+        #   hue = (((i / num_segments) * 360) + 30) % 360
+        # to shift the entire wheel by 30°, thus no slice is pure‐yellow.
+        #
+        # For now, we keep it unshifted. If “yellow marker” reappears,
+        # uncomment the next line and adjust the offset as you like:
+        # hue = (((i / num_segments) * 360) + 30) % 360  # ←— avoid exact yellow
+
+        hue = (i / num_segments) * 360
+        c = pygame.Color(0)
+        c.hsva = (hue, saturation, value, alpha)
+        palette.append((c.r, c.g, c.b, alpha))
+    return palette
+
+def draw_wheel(
+    surf,
+    wheel_center,
+    outer_radius,    # Placeholder—will be recalculated
+    mid_radius,      # Placeholder—will be recalculated
+    inner_radius,    # Placeholder—will be recalculated
+    num_segments,
+    outer_segment_colors,   # If you pass None, we’ll auto‐generate a palette
+    mid_segment_colors,     # If None, we’ll auto‐generate
+    labels_kjq,             # dict: {'K': Surface, 'J': Surface, 'Q': Surface}
+    labels_suits,           # dict: {'Spades': S, 'Diamond': S, ...}
+    current_ang             # in degrees, used to rotate the wheel
+):
+    """
+    Draws a spinning wheel with:
+      1. A subtle drop shadow behind the wheel.
+      2. Smooth, high‐step arcs for each segment.
+      3. Automatically generated HSV palettes (unless you pass your own).
+         - To avoid any “yellow”‐colored slice, you can shift the hue in
+           _generate_hsv_palette as shown above.
+      4. A static arrow at the inner circumference (pointing up), in violet.
+      5. Alternating blinking RGB “LED” dots and sharper violet arrows
+         exactly on a blue ribbon.
+      6. A semi‐translucent blue “ribbon” around the outer circle (fixed pos).
+      7. All radii and positions scale with window size.
+      8. Arrow borders are drawn in the same violet color for smooth edges.
+      9. The inner circle is now smaller and filled with GOLDEN color.
+    """
+
+    # --------------------------------------------------
+    # 1. Recalculate radii and basic parameters based on window size
+    # --------------------------------------------------
+    width, height = surf.get_size()
+    min_dim = min(width, height)
+
+    # Base radii multipliers
+    outer_radius = int(min_dim * 0.37)
+    mid_radius   = int(min_dim * 0.22)
+    inner_radius = int(min_dim * 0.07)   # Reduced from 0.09 to 0.07 for a smaller circle
+
+    # Static inner arrow sizes
+    inner_arrow_height = max(int(min_dim * 0.02), 3)
+    inner_arrow_width  = max(int(min_dim * 0.05), 5)
+
+    # Compute “sharper” dimensions for ribbon arrows
+    # Height = 4% of min_dim (at least 6px), width = 4% (at least 4px)
+    ribbon_arrow_height = max(int(min_dim * 0.04), 6)
+    ribbon_arrow_width  = max(int(min_dim * 0.04), 4)
+
+    # Dot radius (for LED dots)
+    dot_radius = max(int(min_dim * 0.01), 3)
+
+    # Ribbon thickness (semi‐translucent)
+    ribbon_thickness = max(3, int(min_dim * 0.01))
+
+    # Convert rotation angle to radians once
+    current_rad = math.radians(current_ang)
+
+    # --------------------------------------------------
+    # 2. Prepare palettes (if the user passed None)
+    # --------------------------------------------------
+    if outer_segment_colors is None:
+        outer_segment_colors = _generate_hsv_palette(
+            num_segments,
+            saturation=75,
+            value=100,
+            alpha=255
+        )
+    if mid_segment_colors is None:
+        mid_segment_colors = _generate_hsv_palette(
+            num_segments,
+            saturation=60,
+            value=85,
+            alpha=255
+        )
+
+    # --------------------------------------------------
+    # 3. Create an offscreen surface to draw the entire wheel + shadow
+    # --------------------------------------------------
+    temp_size = (
+        outer_radius * 2 + SHADOW_OFFSET * 2,
+        outer_radius * 2 + SHADOW_OFFSET * 2
+    )
+    temp_surf = pygame.Surface(temp_size, flags=pygame.SRCALPHA)
+    temp_center = (
+        outer_radius + SHADOW_OFFSET,
+        outer_radius + SHADOW_OFFSET
+    )
+
+    # --------------------------------------------------
+    # 3a. Draw drop shadow (a blurred-looking, semi-transparent circle)
+    # --------------------------------------------------
+    pygame.gfxdraw.filled_circle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1] + SHADOW_OFFSET,
+        outer_radius,
+        SHADOW_COLOR
+    )
+
+    # --------------------------------------------------
+    # 4. Draw the outermost wheel circle (background + segment wedges)
+    # --------------------------------------------------
+    pygame.gfxdraw.filled_circle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        outer_radius,
+        (TABLE_BG[0], TABLE_BG[1], TABLE_BG[2], 255)
+    )
+    pygame.gfxdraw.aacircle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        outer_radius,
+        (GRID[0], GRID[1], GRID[2], 255)
+    )
 
     for i in range(num_segments):
-        start = math.radians(i * 360 / num_segments + current_ang)
-        end   = start + math.radians(360 / num_segments)
-        pts   = [wheel_center]
-        steps = 60
-        for s in range(steps + 1):
-            a = start + (end - start) * (s / steps)
-            x = wheel_center[0] + outer_radius * math.cos(a)
-            y = wheel_center[1] + outer_radius * math.sin(a)
-            pts.append((int(x), int(y)))
-        pygame.gfxdraw.filled_polygon(surf, pts, outer_segment_colors[i])
-        pygame.gfxdraw.aapolygon(surf, pts, (0, 0, 0))
+        start_ang = math.radians(i * 360 / num_segments) + current_rad
+        end_ang   = start_ang + math.radians(360 / num_segments)
 
+        pts = [temp_center]
+        for s in range(ANGLE_STEPS + 1):
+            a = start_ang + (end_ang - start_ang) * (s / ANGLE_STEPS)
+            x = temp_center[0] + outer_radius * math.cos(a)
+            y = temp_center[1] + outer_radius * math.sin(a)
+            pts.append((int(x), int(y)))
+
+        color = outer_segment_colors[i]
+        pygame.gfxdraw.filled_polygon(temp_surf, pts, color)
+        pygame.draw.polygon(temp_surf, (0, 0, 0), pts, 1)
+
+    # --------------------------------------------------
+    # 5. Draw the K/J/Q icons on the outer ring
+    # --------------------------------------------------
     ranks = ['K', 'J', 'Q']
     for i in range(num_segments):
-        img   = labels_kjq[ranks[i % 3]]
-        angle = math.radians((i + 0.5) * 360 / num_segments + current_ang)
-        pos   = (
-            int(wheel_center[0] + outer_radius * 0.7 * math.cos(angle)),
-            int(wheel_center[1] + outer_radius * 0.7 * math.sin(angle))
-        )
-        surf.blit(img, img.get_rect(center=pos))
+        rank_char = ranks[i % 3]
+        img = labels_kjq[rank_char]
 
-    pygame.gfxdraw.filled_circle(surf, wheel_center[0], wheel_center[1], mid_radius, TABLE_BG)
-    pygame.gfxdraw.aacircle(surf, wheel_center[0], wheel_center[1], mid_radius, GRID)
+        angle = math.radians((i + 0.5) * 360 / num_segments) + current_rad
+        px = int(temp_center[0] + outer_radius * 0.70 * math.cos(angle))
+        py = int(temp_center[1] + outer_radius * 0.70 * math.sin(angle))
+
+        temp_surf.blit(img, img.get_rect(center=(px, py)))
+
+    # --------------------------------------------------
+    # 6. Draw the mid‐circle background and segments
+    # --------------------------------------------------
+    pygame.gfxdraw.filled_circle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        mid_radius,
+        (TABLE_BG[0], TABLE_BG[1], TABLE_BG[2], 255)
+    )
+    pygame.gfxdraw.aacircle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        mid_radius,
+        (GRID[0], GRID[1], GRID[2], 255)
+    )
 
     for i in range(num_segments):
-        start = math.radians(i * 360 / num_segments + current_ang)
-        end   = start + math.radians(360 / num_segments)
-        pts   = [wheel_center]
-        steps = 60
-        for s in range(steps + 1):
-            a = start + (end - start) * (s / steps)
-            x = wheel_center[0] + mid_radius * math.cos(a)
-            y = wheel_center[1] + mid_radius * math.sin(a)
-            pts.append((int(x), int(y)))
-        pygame.gfxdraw.filled_polygon(surf, pts, mid_segment_colors[i])
-        pygame.gfxdraw.aapolygon(surf, pts, (0, 0, 0))
+        start_ang = math.radians(i * 360 / num_segments) + current_rad
+        end_ang   = start_ang + math.radians(360 / num_segments)
 
+        pts = [temp_center]
+        for s in range(ANGLE_STEPS + 1):
+            a = start_ang + (end_ang - start_ang) * (s / ANGLE_STEPS)
+            x = temp_center[0] + mid_radius * math.cos(a)
+            y = temp_center[1] + mid_radius * math.sin(a)
+            pts.append((int(x), int(y)))
+
+        color = mid_segment_colors[i]
+        pygame.gfxdraw.filled_polygon(temp_surf, pts, color)
+        pygame.draw.polygon(temp_surf, (0, 0, 0), pts, 1)
+
+    # --------------------------------------------------
+    # 7. Draw suit icons on the mid ring
+    # --------------------------------------------------
     suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
     for i in range(num_segments):
-        img   = labels_suits[suits[i % 4]]
-        angle = math.radians((i + 0.5) * 360 / num_segments + current_ang)
-        pos   = (
-            int(wheel_center[0] + mid_radius * 0.85 * math.cos(angle)),
-            int(wheel_center[1] + mid_radius * 0.85 * math.sin(angle))
-        )
-        surf.blit(img, img.get_rect(center=pos))
+        suit_name = suits[i % 4]
+        img = labels_suits[suit_name]
 
-    pygame.gfxdraw.filled_circle(surf, wheel_center[0], wheel_center[1], inner_radius, WHITE)
-    pygame.gfxdraw.aacircle(surf, wheel_center[0], wheel_center[1], inner_radius, (0, 0, 0))
+        angle = math.radians((i + 0.5) * 360 / num_segments) + current_rad
+        px = int(temp_center[0] + mid_radius * 0.75 * math.cos(angle))
+        py = int(temp_center[1] + mid_radius * 0.75 * math.sin(angle))
 
+        temp_surf.blit(img, img.get_rect(center=(px, py)))
+
+    # --------------------------------------------------
+    # 8. Draw the inner circle (now smaller and filled GOLDEN)
+    # --------------------------------------------------
+    pygame.gfxdraw.filled_circle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        inner_radius,
+        (GOLDEN[0], GOLDEN[1], GOLDEN[2], 255)
+    )
+    pygame.gfxdraw.aacircle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        inner_radius,
+        (0, 0, 0, 255)
+    )
+
+    # --------------------------------------------------
+    # 9. Draw a semi‐translucent blue “ribbon” around the outer edge (fixed position)
+    # --------------------------------------------------
+    ribbon_center_radius = outer_radius + (ribbon_thickness // 2)
+    blue_with_alpha = (
+        RIBBON_COLOR_RGB[0],
+        RIBBON_COLOR_RGB[1],
+        RIBBON_COLOR_RGB[2],
+        RIBBON_ALPHA
+    )
+    pygame.gfxdraw.aacircle(
+        temp_surf,
+        temp_center[0],
+        temp_center[1],
+        ribbon_center_radius,
+        blue_with_alpha
+    )
+    pygame.draw.circle(
+        temp_surf,
+        blue_with_alpha,
+        temp_center,
+        ribbon_center_radius,
+        ribbon_thickness
+    )
+
+    # --------------------------------------------------
+    # 10. Draw alternating blinking RGB LED dots and sharper violet arrows
+    #     exactly on the ribbon circumference
+    #     Arrow borders are now drawn in the same violet color for smooth edges.
+    # --------------------------------------------------
+    elapsed = pygame.time.get_ticks()
+    phase = (elapsed // 300) % 3
+    if phase == 0:
+        led_color = (255, 0, 0)    # Red
+    elif phase == 1:
+        led_color = (0, 255, 0)    # Green
+    else:
+        led_color = (0, 0, 255)    # Blue
+
+    ribbon_inner_edge = ribbon_center_radius - (ribbon_thickness // 2)
+
+    for i in range(num_segments):
+        angle = math.radians(i * 360 / num_segments)
+
+        if i % 2 == 0:
+            # Draw a blinking LED dot at ribbon_inner_edge
+            dot_x = temp_center[0] + ribbon_inner_edge * math.cos(angle)
+            dot_y = temp_center[1] + ribbon_inner_edge * math.sin(angle)
+            pygame.gfxdraw.filled_circle(
+                temp_surf,
+                int(dot_x),
+                int(dot_y),
+                dot_radius,
+                led_color + (255,)
+            )
+            pygame.gfxdraw.aacircle(
+                temp_surf,
+                int(dot_x),
+                int(dot_y),
+                dot_radius,
+                (0, 0, 0, 255)
+            )
+        else:
+            # Draw a sharper inward-pointing arrow fully inside ribbon band
+            tip_r  = ribbon_inner_edge - ribbon_arrow_height
+            base_r = ribbon_inner_edge
+
+            tip_x = temp_center[0] + tip_r * math.cos(angle)
+            tip_y = temp_center[1] + tip_r * math.sin(angle)
+
+            base_x = temp_center[0] + base_r * math.cos(angle)
+            base_y = temp_center[1] + base_r * math.sin(angle)
+
+            perp_dx = (ribbon_arrow_width / 2) * math.sin(angle)
+            perp_dy = (ribbon_arrow_width / 2) * -math.cos(angle)
+
+            p_tip   = (int(tip_x), int(tip_y))
+            p_base1 = (int(base_x + perp_dx), int(base_y + perp_dy))
+            p_base2 = (int(base_x - perp_dx), int(base_y - perp_dy))
+
+            pygame.gfxdraw.filled_polygon(
+                temp_surf,
+                [p_tip, p_base1, p_base2],
+                ARROW_COLOR + (255,)
+            )
+            # No separate border draw; using filled_polygon with ARROW_COLOR ensures smooth edges.
+
+    # --------------------------------------------------
+    # 11. Draw static arrow at the top of the inner circumference (pointing up), in violet
+    #     Border also in violet for smoothness.
+    # --------------------------------------------------
+    tip_inner_r = inner_radius + inner_arrow_height
+    tip_inner_x = temp_center[0]
+    tip_inner_y = temp_center[1] - inner_radius
+    tip_inner = (int(tip_inner_x), int(tip_inner_y - inner_arrow_height))
+
+    base_inner_left  = (
+        int(tip_inner_x - inner_arrow_width / 2),
+        int(tip_inner_y)
+    )
+    base_inner_right = (
+        int(tip_inner_x + inner_arrow_width / 2),
+        int(tip_inner_y)
+    )
+
+    pygame.gfxdraw.filled_polygon(
+        temp_surf,
+        [tip_inner, base_inner_left, base_inner_right],
+        ARROW_COLOR + (255,)
+    )
+    pygame.gfxdraw.aapolygon(
+        temp_surf,
+        [tip_inner, base_inner_left, base_inner_right],
+        ARROW_COLOR + (255,)
+    )
+
+    # --------------------------------------------------
+    # 12. Blit the fully drawn “temp_surf” back onto the main surface (surf)
+    # --------------------------------------------------
+    dest_rect = pygame.Rect(
+        wheel_center[0] - temp_center[0],
+        wheel_center[1] - temp_center[1],
+        temp_size[0],
+        temp_size[1]
+    )
+    surf.blit(temp_surf, dest_rect)
 
 def update_spin(current_time, spin_start, total_rotation):
     """
