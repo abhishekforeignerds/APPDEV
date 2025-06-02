@@ -741,7 +741,7 @@ def draw_left_table(
     header_cell = pygame.Rect(x0, y0, col_w, cell_h)
     time_str    = datetime.fromtimestamp(now_ts).strftime("%H:%M:%S")
     label_surf  = small_font.render("Withdraw time:", True, WHITE)
-    value_surf  = small_font.render(time_str, True, WHITE)
+    value_surf  = small_font.render(globals.Withdraw_time, True, WHITE)
     center_x    = header_cell.centerx
     center_y    = header_cell.centery
     surf.blit(
