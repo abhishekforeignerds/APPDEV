@@ -99,7 +99,7 @@ def print_json_silent(data_dict, printer_name=None):
     print(f"  Ticket ID     : {ticket_id}")
     print(f"  Serial Number : {serial_number}")
     print(f"  Terminal Name : {user_id}")
-    print(f"  Amount        : ₹{amount}")
+    print(f"  Amount        : {amount}")
     print(f"  Withdraw Time : {withdraw_time}")
     print(f"  Print Date    : {print_date}")
     print(f"  Print Time    : {print_time}")
@@ -1090,11 +1090,11 @@ def handle_click(mouse_pos):
        • JSON body: { "bets": { "r_c": amount, ... } }
        • Print the JSON response from the API.
     3) If a chip is selected and the user clicks on:
-       • A rank icon (K/Q/J) → add amount to each cell in that row.
-       • A suit icon    → add amount to each cell in that column.
-       • Any individual blue cell → add amount there.
+       • A rank icon (K/Q/J) add amount to each cell in that row.
+       • A suit icon    add amount to each cell in that column.
+       • Any individual blue cell add amount there.
        Selection remains after placing.
-    4) Click elsewhere → deselect.
+    4) Click elsewhere deselect.
     """
     global selected_chip, placed_chips
 
@@ -1105,15 +1105,15 @@ def handle_click(mouse_pos):
             "Withdraw_time": globals.Withdraw_time,
             "User_id": globals.User_id
         }
-        print("→ Sending payload:", json.dumps(payload, indent=2))
+        print("Sending payload:", json.dumps(payload, indent=2))
 
         resp = requests.post(
             "https://spintofortune.in/api/app_place_bet.php",
             json=payload,
             headers={"Content-Type": "application/json"}
         )
-        print("← Status:", resp.status_code)
-        print("← Raw response text:", resp.text)
+        print("Status:", resp.status_code)
+        print("Raw response text:", resp.text)
         resp.raise_for_status()
         data = resp.json()
         print(json.dumps(data, indent=2))
