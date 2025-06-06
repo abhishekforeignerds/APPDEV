@@ -42,6 +42,22 @@ def load_last_spin_timestamp():
 def format_withdraw_time(ts):
     return datetime.fromtimestamp(ts).strftime('%H:%M')
 
+def create_gold_gradient_surface(width, height):
+    # Create a new surface for the gradient
+    gradient = pygame.Surface((width, height))
+
+    # Define start and end gold colors
+    start_color = (255, 215, 0)   # Light gold
+    end_color   = (184, 134, 11)  # Darker gold
+
+    for y in range(height):
+        ratio = y / height
+        r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
+        g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
+        b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
+        pygame.draw.line(gradient, (r, g, b), (0, y), (width, y))
+
+    return gradient
 
 def send_withdraw_request(withdraw_time, user_id):
     try:
@@ -69,6 +85,11 @@ def launch_main_app(user_data):
     WHITE = (255, 255, 255)
     ORANGE = (255, 152, 0)
     RED_BG = (200, 0, 0)
+    # ───── COLORS ─────
+    WOOD_BLACK = (34, 21, 11)       # a very dark brown/black, “wood” feel
+    VIOLET     = (148, 0, 211)      # deep violet for borders
+    YELLOW_BG  = (255, 255, 0)      # solid yellow for hover
+
 
     font = pygame.font.SysFont("Arial", 24, bold=True)
     small_font = pygame.font.SysFont("Arial", 20)
@@ -247,26 +268,137 @@ def launch_main_app(user_data):
 
         if show_mode == 'wheel':
             screen.blit(bg_img, (0, 0))
-            pygame.draw.rect(screen, RED_BG, (0, 0, sw, margin_top))
-            pygame.draw.rect(screen, RED_BG, close_btn)
-            cx, cy = close_btn.center
-            off = 8
-            pygame.draw.line(screen, WHITE, (cx-off, cy-off), (cx+off, cy+off), 3)
-            pygame.draw.line(screen, WHITE, (cx-off, cy+off), (cx+off, cy-off), 3)
-            pygame.draw.rect(screen, RED_BG, min_btn)
-            mx, my = min_btn.center
-            pygame.draw.line(screen, WHITE, (mx-10, my), (mx+10, my), 3)
+            # 1) Draw the top margin with a “wooden‐black” solid fill:
+            pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
+            pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
+
+            # 2) Draw a 2px‐thick red line exactly at the bottom edge of the header:
+            border_thickness = 2
+            y_border = margin_top - border_thickness  # flush at the very bottom
+            pygame.draw.line(
+                screen,
+                (255, 0, 0),            # red
+                (0,            y_border),
+                (sw,           y_border),
+                border_thickness
+            )
+            mx, my = pygame.mouse.get_pos()
+
+            # ─── PREPARE DEFAULT‐SIZE GRADIENTS (for non‐hover state) ───
+            close_gradient = create_gold_gradient_surface(close_btn.width, close_btn.height)
+            min_gradient   = create_gold_gradient_surface(min_btn.width, min_btn.height)
+
+
+            # ─── CLOSE BUTTON ("X") ───
+            is_hover_close = close_btn.collidepoint(mx, my)
+
+            if is_hover_close:
+                # 1) Inflate the rect by (4, 4) for hover (→ 2px on each side)
+                hover_rect = close_btn.inflate(6, 6)
+                # 2) Create a slightly larger gradient for the inflated rect
+                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
+                # 3) Draw solid-yellow background (you can also blur this if you want consistent look)
+                #    (If you prefer still using a gradient on hover, just blit hover_grad instead of drawing YELLOW_BG.)
+                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
+
+                # 4) Draw violet border around the inflated rect
+                pygame.draw.rect(screen, VIOLET, hover_rect, 2)
+
+                # 5) Draw the “X” symbol centered on the original center (inflated has same center)
+                cx, cy = close_btn.center
+                off = 8  # fixed offset from center to endpoints
+                pygame.draw.line(screen, VIOLET, (cx - off, cy - off), (cx + off, cy + off), 3)
+                pygame.draw.line(screen, VIOLET, (cx - off, cy + off), (cx + off, cy - off), 3)
+
+            else:
+                # Non‐hover: draw the gold gradient at original size
+                hover_rect = close_btn.inflate(4, 4)
+                # 2) Create a slightly larger gradient for the inflated rect
+                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
+                # 3) Draw solid-yellow background (you can also blur this if you want consistent look)
+                #    (If you prefer still using a gradient on hover, just blit hover_grad instead of drawing YELLOW_BG.)
+                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
+
+                # Draw “X” in white
+                cx, cy = close_btn.center
+                off = 8
+                pygame.draw.line(screen, BLACK, (cx - off, cy - off), (cx + off, cy + off), 3)
+                pygame.draw.line(screen, BLACK, (cx - off, cy + off), (cx + off, cy - off), 3)
+
+
+            player_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}"
+            player_surf = font.render(player_name, True, YELLOW_BG)
+            player_rect = player_surf.get_rect()
+
+            balance_text = f"Balance : {user_data.get('points', 0)}"
+            balance_surf = font.render(balance_text, True, YELLOW_BG)
+            balance_rect = balance_surf.get_rect()
+
+            # spacing between balance‐border and minimize button
+            spacing = 10  
+            # padding inside the balance border (x– and y–)
+            border_padding_x = 10  
+            border_padding_y = 4   
+
+            # Create the border rect around the “Balance” text
+            balance_border = balance_rect.inflate(border_padding_x, border_padding_y)
+            balance_border.right = min_btn.left - spacing
+
+            # **Vertically center both player_rect and balance_border inside the header:**
+            vertical_center = margin_top // 2
+            player_rect.centery = vertical_center
+            balance_border.centery = vertical_center
+
+            # Now position the balance text itself inside that border:
+            balance_rect.left = balance_border.left + (border_padding_x // 2)
+            balance_rect.top  = balance_border.top  + (border_padding_y // 2)
+
+            # Finally, push the player name so it sits just left of the balance border:
+            gap = 10  # horizontal gap between player name and balance-border
+            player_rect.right = balance_border.left - gap
+
+            # 4) Blit everything in order:
+            screen.blit(player_surf, player_rect)
+            pygame.draw.rect(screen, YELLOW_BG, balance_border, width=1)  # 1px yellow border
+            screen.blit(balance_surf, balance_rect)
+
+            # 5) Draw to screen
+            screen.blit(player_surf, (player_rect.left, player_rect.top))
+            pygame.draw.rect(screen, YELLOW_BG, balance_border, 2)
+            screen.blit(balance_surf, (balance_rect.left, balance_rect.top))
+            # ─── MINIMIZE BUTTON ("–") ───
+            is_hover_min = min_btn.collidepoint(mx, my)
+
+            if is_hover_min:
+                hover_rect = min_btn.inflate(6, 6)
+                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
+                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
+                pygame.draw.rect(screen, VIOLET, hover_rect, 2)
+
+                # Draw “–” in BLACK (centered at the same center as original)
+                mx_c, my_c = min_btn.center
+                off = 8
+                pygame.draw.line(screen, BLACK, (mx_c - off, my_c), (mx_c + off, my_c), 3)
+
+            else:
+                hover_rect = min_btn.inflate(4, 4)
+                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
+                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
+                pygame.draw.rect(screen, BLACK, hover_rect, 2)
+
+                mx_c, my_c = min_btn.center
+                off = 8
+                pygame.draw.line(screen, BLACK, (mx_c - off, my_c), (mx_c + off, my_c), 3)
+
 
             current_clock = datetime.now().strftime('%H:%M:%S')
+            current_date = datetime.now().strftime('%d-%m-%Y')
             info_txt = (
-                f"Time: {current_clock}   "
-                f"ID:{user_data['id']}   "
-                f"User:{user_data['username']}   "
-                f"Name:{user_data.get('first_name','')} {user_data.get('last_name','')}   "
-                f"Pts:{user_data.get('points',0)}   "
+                f"{current_date}  "
+                f"{current_clock}   "
                 f"Win:{user_data.get('winning_points',0)}"
             )
-            text_surf = pygame.font.Font(None, 16).render(info_txt, True, WHITE)
+            text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
             screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
 
             draw_left_table(
