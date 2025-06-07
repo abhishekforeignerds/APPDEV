@@ -513,12 +513,16 @@ WHITE          = (255, 255, 255)
 BLUE_BG_TOP    = (255, 255, 255)     # top of blue-cell gradient (pure white)
 BLUE_BG_BOTTOM = (200, 200, 200)     # bottom of blue-cell gradient (light gray)
 RED            = (200, 0, 0)
+BLUE_RIBBON    = (0, 0, 200)         # ribbon color when a bet is placed (blue)
 BUTTON_BG      = (50, 50, 50)
 BUTTON_BORDER  = (200, 200, 200)
 GOLDEN         = (255, 215, 0)
 YELLOW         = (255, 255, 0)
 BLACK          = (0, 0, 0)
 DARK_BORDER    = (20, 20, 20)        # slightly black for outer table border
+
+# Add a dict to store ribbon rects per cell
+ribbon_rects = {}
 
 def draw_left_table(
     surf,
@@ -537,21 +541,22 @@ def draw_left_table(
     Draws:
       1) A table of cells with no drop shadow.
       2) Header row: first cell ("Withdraw time") centered; columns 1–4: suit image +
-         a taller golden‐bordered gradient box containing a smaller "Play" circle,
+         a taller colored ribbon box containing a smaller "Play" circle or chip,
          with an attached taller label box above reading "All <SuitPlural>".
-      3) First column rows 1–3: rank image + a taller golden‐bordered gradient box containing
-         a smaller "Play" circle, with an attached taller label box above reading "All <RankPlural>".
+      3) First column rows 1–3: rank image + taller colored ribbon box containing
+         a smaller "Play" circle or chip, with an attached taller label box above reading "All <RankPlural>".
       4) A tray of chips below the table.
-      5) Any chips placed on the cells, showing their total amount.
+      5) Any chips placed on the ribbons, hiding the "Play" text.
       6) A visible text displaying the current total bet.
       7) A "Bet" button to submit placed bets.
     """
-    global chip_rects, cell_rects, rank_icon_rects, suit_icon_rects, bet_button_rect
+    global chip_rects, cell_rects, rank_icon_rects, suit_icon_rects, bet_button_rect, ribbon_rects
     chip_rects       = []
     cell_rects       = {}
     rank_icon_rects  = {}
     suit_icon_rects  = {}
     bet_button_rect  = None
+    ribbon_rects     = {}
 
     # Move entire table up by 60 pixels (to give more space at bottom)
     y0_adj = y0 - 60
@@ -626,7 +631,7 @@ def draw_left_table(
     # Prepare a smaller label font for attached boxes
     label_font = pygame.font.Font(None, max(6, int(small_font.get_height() * 0.6)))
 
-    # 3) Header row columns 1–4: suit image + taller golden‐bordered gradient box + “Play” + attached label
+    # 3) Header row columns 1–4: suit image + taller labeled box + ribbon (red by default) with “Play”
     suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
     small_radius = max(4, radius // 4)
     for i, suit in enumerate(suits, start=1):
@@ -676,6 +681,7 @@ def draw_left_table(
             )
         )
 
+        # Attached label above
         label_box_w = int(total_w * 0.8)
         label_box_h = int(label_h * 1.5)
         label_box_left = box_left + (total_w - label_box_w) / 2
@@ -690,7 +696,7 @@ def draw_left_table(
             )
         )
 
-    # 4) First column rows 1–3: rank image + taller golden‐bordered gradient box + “Play” + attached label
+    # 4) First column rows 1–3: rank image + taller labeled box + ribbon (red by default) with “Play”
     ranks = ['K', 'Q', 'J']
     rank_label_map = {'K': 'All Kings', 'Q': 'All Queens', 'J': 'All Jacks'}
     for ridx, rank in enumerate(ranks, start=1):
@@ -740,6 +746,7 @@ def draw_left_table(
             )
         )
 
+        # Attached label above
         label_box_w = int(total_w * 0.8)
         label_box_h = int(label_h * 1.5)
         label_box_left = box_left + (total_w - label_box_w) / 2
@@ -754,7 +761,7 @@ def draw_left_table(
             )
         )
 
-    # 5) Draw play cells (rows 1–3, cols 1–4) with white→light-gray gradient
+    # 5) Draw play cells (rows 1–3, cols 1–4) with white→light-gray gradient and ribbons (red by default, blue if bet placed)
     ribbon_font = pygame.font.Font(None, max(6, int(small_font.get_height() * 0.6)))
     for ridx, rank in enumerate(ranks, start=1):
         for cidx, suit in enumerate(suits, start=1):
@@ -773,6 +780,7 @@ def draw_left_table(
             cell_rects[(ridx, cidx)] = blue_box
             draw_blue_cell_gradient(surf, blue_box, radius // 3)
 
+            # Draw rank and suit icons inside the blue cell
             total_w = int(label_size * 1 + suit_size * 1.2 + 8)
             yc      = blue_box.centery - int(box_h * 0.1)
 
@@ -792,17 +800,22 @@ def draw_left_table(
                 )
             )
 
+            # Determine ribbon rect
             ribbon_h = int(box_h * 0.2)
             ribbon_w = int(box_w * 1.05)
             ribbon_x = int(blue_box.left - (ribbon_w - box_w) / 2)
             ribbon_y = int(blue_box.bottom - ribbon_h - int(box_h * 0.1))
             ribbon_rect = pygame.Rect(ribbon_x, ribbon_y, ribbon_w, ribbon_h)
+            ribbon_rects[(ridx, cidx)] = ribbon_rect
+
+            # Choose ribbon color: RED by default, BLUE if bet is placed here
+            color = BLUE_RIBBON if (ridx, cidx) in placed_chips else RED
 
             pygame.gfxdraw.filled_polygon(
                 surf,
                 [ribbon_rect.topleft, ribbon_rect.topright,
                  ribbon_rect.bottomright, ribbon_rect.bottomleft],
-                RED
+                color
             )
             pygame.gfxdraw.aapolygon(
                 surf,
@@ -811,20 +824,23 @@ def draw_left_table(
                 BLACK
             )
 
-            play_surf = ribbon_font.render("Play", True, BLACK)
-            surf.blit(
-                play_surf,
-                (
-                    ribbon_rect.left + (ribbon_w - play_surf.get_width()) / 2,
-                    ribbon_rect.top  + (ribbon_h - play_surf.get_height()) / 2
+            # Only draw "Play" text if no chip is placed here
+            if (ridx, cidx) not in placed_chips:
+                play_surf = ribbon_font.render("Play", True, BLACK)
+                surf.blit(
+                    play_surf,
+                    (
+                        ribbon_rect.left + (ribbon_w - play_surf.get_width()) / 2,
+                        ribbon_rect.top  + (ribbon_h - play_surf.get_height()) / 2
+                    )
                 )
-            )
 
-    # 6) Draw any placed chips on the play cells
+    # 6) Draw any placed chips on the ribbons (hiding "Play")
     for (ridx, cidx), total_amt in placed_chips.items():
-        if (ridx, cidx) in cell_rects:
-            center_x = cell_rects[(ridx, cidx)].centerx
-            center_y = cell_rects[(ridx, cidx)].centery
+        if (ridx, cidx) in ribbon_rects:
+            rrect = ribbon_rects[(ridx, cidx)]
+            center_x = rrect.centerx
+            center_y = rrect.centery
             chip_radius = int(min(cell_h, col_w) // 6)
             pygame.gfxdraw.filled_circle(surf, center_x, center_y, chip_radius, chip_defs[0]['color'])
             pygame.gfxdraw.aacircle(surf, center_x, center_y, chip_radius, BLACK)
@@ -922,6 +938,7 @@ def draw_left_table(
     pygame.draw.rect(surf, BUTTON_BORDER, bet_button_rect, 1, border_radius=radius // 2)
     btn_txt = small_font.render("Bet", True, WHITE)
     surf.blit(btn_txt, btn_txt.get_rect(center=bet_button_rect.center))
+
 
 def handle_click(mouse_pos):
     """

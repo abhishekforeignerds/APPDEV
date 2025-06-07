@@ -15,7 +15,7 @@ from table_module import draw_table
 LAST_SPIN_FILE = "last_spin.json"
 CYCLE_DURATION = 120      # seconds (2 minutes)
 DASHBOARD_API = "https://spintofortune.in/api/app_dashboard_data.php"
-RESULT_API = "https://spintofortune.in/api/app_make_result.php"
+RESULT_API    = "https://spintofortune.in/api/app_make_result.php"
 
 def resource_path(relative_path):
     try:
@@ -25,6 +25,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 def save_last_cycle_timestamp(ts):
+    """Persist the cycle‐start timestamp (i.e. withdraw_ts - CYCLE_DURATION)."""
     try:
         with open(LAST_SPIN_FILE, 'w') as f:
             json.dump({"last_cycle": ts}, f)
@@ -101,35 +102,35 @@ def launch_main_app(user_data):
     bg_img = pygame.image.load(resource_path("overlay-bg.jpg")).convert()
     bg_img = pygame.transform.scale(bg_img, (sw, sh))
 
-    num_segments = 12
-    outer_radius = int(min(sw, sh) * 0.2)
-    mid_radius = outer_radius // 2
-    inner_radius = mid_radius // 2
-    wheel_center = (int(sw * 0.75), int(sh // 2))
-    outer_colors = [(150, 0, 0)] * num_segments
-    mid_colors = [(0, 0, 100) if i % 2 == 0 else (0, 0, 50) for i in range(num_segments)]
+    num_segments   = 12
+    outer_radius   = int(min(sw, sh) * 0.2)
+    mid_radius     = outer_radius // 2
+    inner_radius   = mid_radius // 2
+    wheel_center   = (int(sw * 0.75), int(sh // 2))
+    outer_colors   = [(150, 0, 0)] * num_segments
+    mid_colors     = [(0, 0, 100) if i % 2 == 0 else (0, 0, 50) for i in range(num_segments)]
 
-    padding = 10
-    icon_size = int(min(sw, sh) * 0.03)
+    padding    = 10
+    icon_size  = int(min(sw, sh) * 0.03)
     margin_top = icon_size + padding * 2
 
     close_btn = pygame.Rect(sw - icon_size - padding, padding, icon_size, icon_size)
-    min_btn = pygame.Rect(close_btn.x - icon_size - padding, padding, icon_size, icon_size)
+    min_btn   = pygame.Rect(close_btn.x - icon_size - padding, padding, icon_size, icon_size)
 
     btn_w = int(sw * 0.1)
     btn_h = int(sh * 0.05)
     top_y = margin_top + padding
-    pad = 10
+    pad   = 10
     total_w = btn_w * 3 + pad * 2
     start_x = sw - pad - total_w
 
     account_btn = pygame.Rect(start_x, top_y, btn_w, btn_h)
     history_btn = pygame.Rect(start_x + btn_w + pad, top_y, btn_w, btn_h)
-    simple_btn = pygame.Rect(start_x + 2*(btn_w + pad), top_y, btn_w, btn_h)
+    simple_btn  = pygame.Rect(start_x + 2 * (btn_w + pad), top_y, btn_w, btn_h)
 
     back_btn = pygame.Rect(50, sh - 70, 100, 40)
 
-    # ───── FETCH INITIAL SERVER TIME & SCHEDULE CYCLE ─────
+    # ───── FETCH INITIAL SERVER TIME ─────
     try:
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
@@ -138,87 +139,98 @@ def launch_main_app(user_data):
         server_ts = time.time()
 
     base_server_ts = server_ts
-    base_local_ts = time.time()
+    base_local_ts  = time.time()
 
-    # Compute initial next_action_dt and withdraw_dt, aligning seconds to zero
+    # ───── DETERMINE THE “NEXT WITHDRAW” ON AN EVEN :00 ─────
     server_dt = datetime.fromtimestamp(base_server_ts)
-    m = server_dt.minute
-    base_dt = server_dt.replace(second=0, microsecond=0)
-
-    if m % 2 == 1:
-        # If server minute is odd, withdraw at next even-minute:00
-        withdraw_dt = base_dt + timedelta(minutes=1)
+    # If server’s minute is odd → schedule withdraw at next minute :00
+    # Else → schedule withdraw two minutes ahead :00
+    if server_dt.minute % 2 == 1:
+        candidate = server_dt.replace(second=0, microsecond=0) + timedelta(minutes=1)
     else:
-        # If server minute is even, withdraw at server minute + 2 :00
-        withdraw_dt = base_dt + timedelta(minutes=2)
+        candidate = server_dt.replace(second=0, microsecond=0) + timedelta(minutes=2)
 
-    # withdraw_dt now has second=0; compute withdraw_ts and remaining duration
-    withdraw_ts = withdraw_dt.timestamp()
-    cycle_duration = CYCLE_DURATION  # 120 seconds total
+    next_action_ts = candidate.timestamp()
+
+    # ───── SET CYCLE START (so that countdown always begins from 120) ─────
+    # cycle_start_ts = withdraw_ts - CYCLE_DURATION  → this ensures a full 120s countdown
+    cycle_start_ts = next_action_ts - CYCLE_DURATION
+
+    # Persist that cycle-start timestamp
+    save_last_cycle_timestamp(cycle_start_ts)
+
+    withdraw_ts = next_action_ts
     globals.Withdraw_time = format_withdraw_time(withdraw_ts)
     wheel_module.print_withdraw_time()
 
     mapped_list = []
     result_sent = False
 
-    # Persist or catch up the last cycle timestamp
-    persisted_ts = load_last_cycle_timestamp()
-    if persisted_ts is not None:
-        last_cycle = persisted_ts
-        # If behind server, catch up in 120s increments
-        while last_cycle + cycle_duration <= base_server_ts:
-            last_cycle += cycle_duration
-        save_last_cycle_timestamp(last_cycle)
-        next_action_ts = last_cycle + cycle_duration
-    else:
-        # First time: set last_cycle so that next_action_ts == withdraw_ts
-        last_cycle = withdraw_ts - cycle_duration
-        save_last_cycle_timestamp(last_cycle)
-        next_action_ts = withdraw_ts
+    # ───── IF WE HAVE AN EXISTING “last_cycle” FROM DISK, CATCH UP ─────
+    persisted_start = load_last_cycle_timestamp()
+    if persisted_start is not None:
+        # Bring "cycle_start_ts" forward in increments of CYCLE_DURATION until it's
+        # just behind the current server time
+        last_cycle = persisted_start
+        while last_cycle + CYCLE_DURATION <= base_server_ts:
+            last_cycle += CYCLE_DURATION
+        cycle_start_ts = last_cycle
+        next_action_ts = cycle_start_ts + CYCLE_DURATION
+        withdraw_ts = next_action_ts
+
+        # Overwrite globals.Withdraw_time so it’s always on an even :00
+        globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+        wheel_module.print_withdraw_time()
+        save_last_cycle_timestamp(cycle_start_ts)
 
     def api_loop():
-        nonlocal mapped_list, last_cycle, base_server_ts, base_local_ts
-        nonlocal next_action_ts, withdraw_ts, cycle_duration, result_sent
+        nonlocal mapped_list, base_server_ts, base_local_ts
+        nonlocal next_action_ts, withdraw_ts, cycle_start_ts, result_sent
 
         while True:
             time.sleep(2)
             try:
                 resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
                 data = resp.json()
+                globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
 
+                # If server provides a fresh timestamp, re-sync
                 srv_now = data.get('server_timestamp')
                 if srv_now:
-                    # Reset base server/local to resync
                     base_server_ts = srv_now
-                    base_local_ts = time.time()
+                    base_local_ts  = time.time()
 
+                # Check if the server’s “last_spin_timestamp” moved ahead
                 srv_last = data.get('last_spin_timestamp')
                 if srv_last:
-                    # Align that timestamp to even-minute :00
+                    # Align that timestamp to the last even‐minute :00
                     srv_dt = datetime.fromtimestamp(srv_last)
                     aligned_min = srv_dt.minute - (srv_dt.minute % 2)
                     aligned_cycle_dt = srv_dt.replace(minute=aligned_min, second=0, microsecond=0)
                     last_cycle = aligned_cycle_dt.timestamp()
-                    while last_cycle + cycle_duration <= base_server_ts:
-                        last_cycle += cycle_duration
-                    save_last_cycle_timestamp(last_cycle)
-                    next_action_ts = last_cycle + cycle_duration
 
-                # If server time has already passed next_action_ts, schedule a new one
+                    # Advance in leaps of CYCLE_DURATION so last_cycle is just behind current server time
+                    while last_cycle + CYCLE_DURATION <= base_server_ts:
+                        last_cycle += CYCLE_DURATION
+
+                    cycle_start_ts = last_cycle
+                    next_action_ts  = cycle_start_ts + CYCLE_DURATION
+                    withdraw_ts     = next_action_ts
+                    globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+                    wheel_module.print_withdraw_time()
+                    save_last_cycle_timestamp(cycle_start_ts)
+
+                # If server time has already passed the scheduled withdraw → schedule the next one
                 if base_server_ts >= next_action_ts:
-                    proposed_dt = datetime.fromtimestamp(next_action_ts) + timedelta(seconds=cycle_duration)
-                    proposed_dt = proposed_dt.replace(second=0, microsecond=0)
-                    if proposed_dt.minute % 2 == 1:
-                        proposed_dt += timedelta(minutes=1)
-                    next_action_ts = proposed_dt.timestamp()
+                    # Simply jump ahead by exactly one cycle
+                    cycle_start_ts = next_action_ts
+                    next_action_ts = cycle_start_ts + CYCLE_DURATION
+                    withdraw_ts    = next_action_ts
+                    globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+                    wheel_module.print_withdraw_time()
+                    save_last_cycle_timestamp(cycle_start_ts)
 
-                # Always update withdraw label to next_action_ts
-                withdraw_dt_new = datetime.fromtimestamp(next_action_ts)
-                withdraw_dt_new = withdraw_dt_new.replace(second=0, microsecond=0)
-                globals.Withdraw_time = format_withdraw_time(withdraw_dt_new.timestamp())
-                withdraw_ts = withdraw_dt_new.timestamp()
-                cycle_duration = withdraw_ts - base_server_ts
                 result_sent = False
 
             except Exception:
@@ -229,14 +241,14 @@ def launch_main_app(user_data):
     clock = pygame.time.Clock()
     spinning = False
     current_ang = 0.0
-    spin_start = 0.0
-    total_rot = 0.0
-    show_mode = 'wheel'
+    spin_start  = 0.0
+    total_rot   = 0.0
+    show_mode   = 'wheel'
 
     def draw_timer_ring(surface, center, radius, remaining, total):
         fraction = max(0.0, min(1.0, remaining / total))
         start_ang = -90 * (3.14 / 180)
-        end_ang = (360 * fraction - 90) * (3.14 / 180)
+        end_ang   = (360 * fraction - 90) * (3.14 / 180)
         rect = pygame.Rect(0, 0, radius * 2, radius * 2)
         rect.center = center
         pygame.draw.circle(surface, (50, 50, 50), center, radius, 4)
@@ -245,15 +257,17 @@ def launch_main_app(user_data):
     def compute_countdown():
         """
         Interpolate server time and compute 'remaining' seconds until withdraw_ts.
+        Because we know cycle_start_ts + CYCLE_DURATION = withdraw_ts, this
+        always yields a number up to 120.
         """
         curr_local = time.time()
         elapsed = curr_local - base_local_ts
         current_server_ts = base_server_ts + elapsed
-        remaining = max(0, int(withdraw_ts - current_server_ts))
+        remaining = max(0, int((cycle_start_ts + CYCLE_DURATION) - current_server_ts))
         return remaining, current_server_ts
 
     def draw_withdraw_time_label():
-        # Always show “Withdraw @ HH:MM:00” from withdraw_ts
+        # Always show “Withdraw @ HH:MM:00”
         label = f"Withdraw @ {globals.Withdraw_time}"
         fs = int(min(sw, sh) * 0.03)
         lbl_font = pygame.font.SysFont("Arial", fs, bold=True)
@@ -282,17 +296,14 @@ def launch_main_app(user_data):
             send_withdraw_request(globals.Withdraw_time, user_data['id'])
             result_sent = True
 
-            # Reset cycle: schedule next_action_ts = current_server_ts + 120s, align :00
-            new_dt = datetime.fromtimestamp(current_server_ts + CYCLE_DURATION)
-            new_dt = new_dt.replace(second=0, microsecond=0)
-            if new_dt.minute % 2 == 1:
-                new_dt += timedelta(minutes=1)
-            next_action_ts = new_dt.timestamp()
-            save_last_cycle_timestamp(current_server_ts)
-
-            globals.Withdraw_time = format_withdraw_time(next_action_ts)
-            withdraw_ts = next_action_ts
-            cycle_duration = withdraw_ts - base_server_ts
+            # ─── Schedule the next cycle: advance by exactly 120 seconds ───
+            cycle_start_ts = cycle_start_ts + CYCLE_DURATION
+            next_action_ts = cycle_start_ts + CYCLE_DURATION
+            withdraw_ts    = next_action_ts
+            globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+            wheel_module.print_withdraw_time()
+            save_last_cycle_timestamp(cycle_start_ts)
+            # ──────────────────────────────────────────────────────────────
 
         # ─── Handle Pygame events ───
         for ev in pygame.event.get():
@@ -398,7 +409,7 @@ def launch_main_app(user_data):
 
             # ─── Current date/time & Win points ───
             current_clock = datetime.now().strftime('%H:%M:%S')
-            current_date = datetime.now().strftime('%d-%m-%Y')
+            current_date  = datetime.now().strftime('%d-%m-%Y')
             info_txt = (
                 f"{current_date}  "
                 f"{current_clock}   "
@@ -429,7 +440,7 @@ def launch_main_app(user_data):
             radius = int(min(sw, sh) * 0.05)
             padding_br = 20
             center = (sw - radius - padding_br, sh - radius - padding_br)
-            draw_timer_ring(screen, center, radius, remaining, cycle_duration)
+            draw_timer_ring(screen, center, radius, remaining, CYCLE_DURATION)
             fs = int(min(sw, sh) * 0.04)
             countdown_font = pygame.font.SysFont("Arial", fs, bold=True)
             txt_surf = countdown_font.render(f"{remaining}s", True, WHITE)
@@ -460,12 +471,12 @@ def launch_main_app(user_data):
             pygame.draw.rect(screen, ORANGE, back_btn)
             screen.blit(
                 pygame.font.SysFont("Arial", 32, bold=True).render("Close", True, BLACK),
-                (back_btn.x + 20, back_btn.y + 5) 
+                (back_btn.x + 20, back_btn.y + 5)
             )
 
         elif show_mode == 'summary':
             total_sale = sum(float(i.get('bet_amount', 0)) for i in mapped_list)
-            total_win = sum(float(i.get('claim_point', 0)) for i in mapped_list)
+            total_win  = sum(float(i.get('claim_point', 0)) for i in mapped_list)
             total_comm = total_sale * 0.03
             net = total_sale - total_win - total_comm
             row = {
