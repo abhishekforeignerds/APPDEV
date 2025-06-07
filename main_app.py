@@ -6,15 +6,14 @@ import threading
 import json
 import requests
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import globals
 import wheel_module
 from wheel_module import draw_wheel, update_spin, draw_left_table, handle_click
 from table_module import draw_table
 
 LAST_SPIN_FILE = "last_spin.json"
-SPIN_DURATION = 120
-WITHDRAW_BUFFER = 60
+CYCLE_DURATION = 120      # seconds (2 minutes)
 DASHBOARD_API = "https://spintofortune.in/api/app_dashboard_data.php"
 RESULT_API = "https://spintofortune.in/api/app_make_result.php"
 
@@ -25,38 +24,33 @@ def resource_path(relative_path):
         base_path = os.path.abspath('.')
     return os.path.join(base_path, relative_path)
 
-def save_last_spin_timestamp(ts):
+def save_last_cycle_timestamp(ts):
     try:
         with open(LAST_SPIN_FILE, 'w') as f:
-            json.dump({"last_spin": ts}, f)
+            json.dump({"last_cycle": ts}, f)
     except Exception:
         pass
 
-def load_last_spin_timestamp():
+def load_last_cycle_timestamp():
     try:
-        with open(LAST_SPIN_FILE, 'r') as f:
-            return json.load(f).get("last_spin", None)
+        return json.load(open(LAST_SPIN_FILE)).get("last_cycle", None)
     except Exception:
         return None
 
 def format_withdraw_time(ts):
-    return datetime.fromtimestamp(ts).strftime('%H:%M')
+    # Always display HH:MM:00 (seconds are zeroed)
+    return datetime.fromtimestamp(ts).strftime('%H:%M:%S')
 
 def create_gold_gradient_surface(width, height):
-    # Create a new surface for the gradient
     gradient = pygame.Surface((width, height))
-
-    # Define start and end gold colors
     start_color = (255, 215, 0)   # Light gold
     end_color   = (184, 134, 11)  # Darker gold
-
     for y in range(height):
         ratio = y / height
         r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
         g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
         b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
         pygame.draw.line(gradient, (r, g, b), (0, y), (width, y))
-
     return gradient
 
 def send_withdraw_request(withdraw_time, user_id):
@@ -74,6 +68,7 @@ def send_withdraw_request(withdraw_time, user_id):
         print("Raw response:", resp.text)
     except Exception as e:
         print("Request error:", e)
+
 def launch_main_app(user_data):
     pygame.init()
     info = pygame.display.Info()
@@ -84,12 +79,9 @@ def launch_main_app(user_data):
     BLACK = (0, 0, 0)
     WHITE = (255, 255, 255)
     ORANGE = (255, 152, 0)
-    RED_BG = (200, 0, 0)
-    # ───── COLORS ─────
-    WOOD_BLACK = (34, 21, 11)       # a very dark brown/black, “wood” feel
-    VIOLET     = (148, 0, 211)      # deep violet for borders
-    YELLOW_BG  = (255, 255, 0)      # solid yellow for hover
-
+    WOOD_BLACK = (34, 21, 11)
+    VIOLET     = (148, 0, 211)
+    YELLOW_BG  = (255, 255, 0)
 
     font = pygame.font.SysFont("Arial", 24, bold=True)
     small_font = pygame.font.SysFont("Arial", 20)
@@ -137,46 +129,98 @@ def launch_main_app(user_data):
 
     back_btn = pygame.Rect(50, sh - 70, 100, 40)
 
-    persisted_ts = load_last_spin_timestamp()
-    last_auto = persisted_ts or time.time()
-    next_spin_time = last_auto + SPIN_DURATION
-    next_withdraw_ts = last_auto + SPIN_DURATION + WITHDRAW_BUFFER
+    # ───── FETCH INITIAL SERVER TIME & SCHEDULE CYCLE ─────
+    try:
+        resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
+        data = resp.json()
+        server_ts = data.get("server_timestamp", time.time())
+    except Exception:
+        server_ts = time.time()
 
-    dt_withdraw = datetime.fromtimestamp(next_withdraw_ts)
-    if dt_withdraw.minute % 2 == 1:
-        next_withdraw_ts -= 60
+    base_server_ts = server_ts
+    base_local_ts = time.time()
 
-    withdraw_str = format_withdraw_time(next_withdraw_ts)
-    globals.Withdraw_time = withdraw_str
+    # Compute initial next_action_dt and withdraw_dt, aligning seconds to zero
+    server_dt = datetime.fromtimestamp(base_server_ts)
+    m = server_dt.minute
+    base_dt = server_dt.replace(second=0, microsecond=0)
+
+    if m % 2 == 1:
+        # If server minute is odd, withdraw at next even-minute:00
+        withdraw_dt = base_dt + timedelta(minutes=1)
+    else:
+        # If server minute is even, withdraw at server minute + 2 :00
+        withdraw_dt = base_dt + timedelta(minutes=2)
+
+    # withdraw_dt now has second=0; compute withdraw_ts and remaining duration
+    withdraw_ts = withdraw_dt.timestamp()
+    cycle_duration = CYCLE_DURATION  # 120 seconds total
+    globals.Withdraw_time = format_withdraw_time(withdraw_ts)
     wheel_module.print_withdraw_time()
 
     mapped_list = []
     result_sent = False
 
+    # Persist or catch up the last cycle timestamp
+    persisted_ts = load_last_cycle_timestamp()
+    if persisted_ts is not None:
+        last_cycle = persisted_ts
+        # If behind server, catch up in 120s increments
+        while last_cycle + cycle_duration <= base_server_ts:
+            last_cycle += cycle_duration
+        save_last_cycle_timestamp(last_cycle)
+        next_action_ts = last_cycle + cycle_duration
+    else:
+        # First time: set last_cycle so that next_action_ts == withdraw_ts
+        last_cycle = withdraw_ts - cycle_duration
+        save_last_cycle_timestamp(last_cycle)
+        next_action_ts = withdraw_ts
+
     def api_loop():
-        nonlocal mapped_list, last_auto, next_spin_time, next_withdraw_ts, withdraw_str, result_sent
+        nonlocal mapped_list, last_cycle, base_server_ts, base_local_ts
+        nonlocal next_action_ts, withdraw_ts, cycle_duration, result_sent
+
         while True:
             time.sleep(2)
             try:
                 resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
                 data = resp.json()
-                globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
+
+                srv_now = data.get('server_timestamp')
+                if srv_now:
+                    # Reset base server/local to resync
+                    base_server_ts = srv_now
+                    base_local_ts = time.time()
 
                 srv_last = data.get('last_spin_timestamp')
                 if srv_last:
-                    last_auto = srv_last
-                    save_last_spin_timestamp(srv_last)
-                    next_spin_time = last_auto + SPIN_DURATION
-                    next_withdraw_ts = last_auto + SPIN_DURATION + WITHDRAW_BUFFER
+                    # Align that timestamp to even-minute :00
+                    srv_dt = datetime.fromtimestamp(srv_last)
+                    aligned_min = srv_dt.minute - (srv_dt.minute % 2)
+                    aligned_cycle_dt = srv_dt.replace(minute=aligned_min, second=0, microsecond=0)
+                    last_cycle = aligned_cycle_dt.timestamp()
+                    while last_cycle + cycle_duration <= base_server_ts:
+                        last_cycle += cycle_duration
+                    save_last_cycle_timestamp(last_cycle)
+                    next_action_ts = last_cycle + cycle_duration
 
-                    dt_withdraw = datetime.fromtimestamp(next_withdraw_ts)
-                    if dt_withdraw.minute % 2 == 1:
-                        next_withdraw_ts -= 60
+                # If server time has already passed next_action_ts, schedule a new one
+                if base_server_ts >= next_action_ts:
+                    proposed_dt = datetime.fromtimestamp(next_action_ts) + timedelta(seconds=cycle_duration)
+                    proposed_dt = proposed_dt.replace(second=0, microsecond=0)
+                    if proposed_dt.minute % 2 == 1:
+                        proposed_dt += timedelta(minutes=1)
+                    next_action_ts = proposed_dt.timestamp()
 
-                    withdraw_str = format_withdraw_time(next_withdraw_ts)
-                    globals.Withdraw_time = withdraw_str
-                    result_sent = False
+                # Always update withdraw label to next_action_ts
+                withdraw_dt_new = datetime.fromtimestamp(next_action_ts)
+                withdraw_dt_new = withdraw_dt_new.replace(second=0, microsecond=0)
+                globals.Withdraw_time = format_withdraw_time(withdraw_dt_new.timestamp())
+                withdraw_ts = withdraw_dt_new.timestamp()
+                cycle_duration = withdraw_ts - base_server_ts
+                result_sent = False
+
             except Exception:
                 pass
 
@@ -190,57 +234,67 @@ def launch_main_app(user_data):
     show_mode = 'wheel'
 
     def draw_timer_ring(surface, center, radius, remaining, total):
-        fraction = remaining / total
-        start_ang = -90 * (3.14/180)
-        end_ang = (360 * fraction - 90) * (3.14/180)
-        rect = pygame.Rect(0, 0, radius*2, radius*2)
+        fraction = max(0.0, min(1.0, remaining / total))
+        start_ang = -90 * (3.14 / 180)
+        end_ang = (360 * fraction - 90) * (3.14 / 180)
+        rect = pygame.Rect(0, 0, radius * 2, radius * 2)
         rect.center = center
-        pygame.draw.circle(surface, (50,50,50), center, radius, 4)
+        pygame.draw.circle(surface, (50, 50, 50), center, radius, 4)
         pygame.draw.arc(surface, ORANGE, rect, start_ang, end_ang, 4)
 
-    def draw_countdown(now_ts):
-        remaining = max(0, int(next_spin_time - now_ts))
-        radius = int(min(sw, sh) * 0.05)
-        padding_br = 20
-        center = (sw - radius - padding_br, sh - radius - padding_br)
-        draw_timer_ring(screen, center, radius, remaining, SPIN_DURATION)
-        fs = int(min(sw, sh) * 0.04)
-        countdown_font = pygame.font.SysFont("Arial", fs, bold=True)
-        txt_surf = countdown_font.render(f"{remaining}s", True, WHITE)
-        screen.blit(txt_surf, (center[0] - txt_surf.get_width()//2, center[1] - txt_surf.get_height()//2))
-        return remaining
+    def compute_countdown():
+        """
+        Interpolate server time and compute 'remaining' seconds until withdraw_ts.
+        """
+        curr_local = time.time()
+        elapsed = curr_local - base_local_ts
+        current_server_ts = base_server_ts + elapsed
+        remaining = max(0, int(withdraw_ts - current_server_ts))
+        return remaining, current_server_ts
 
     def draw_withdraw_time_label():
-        pass
+        # Always show “Withdraw @ HH:MM:00” from withdraw_ts
+        label = f"Withdraw @ {globals.Withdraw_time}"
+        fs = int(min(sw, sh) * 0.03)
+        lbl_font = pygame.font.SysFont("Arial", fs, bold=True)
+        surf = lbl_font.render(label, True, YELLOW_BG)
+        padding = 20
+        x = sw - surf.get_width() - padding
+        y = sh - surf.get_height() - padding - int(min(sw, sh) * 0.05) - 10
+        screen.blit(surf, (x, y))
 
     while True:
-        now = time.time()
-        remaining = max(0, int(next_spin_time - now))
-        if remaining <= 5 and not result_sent:
-            send_withdraw_request(withdraw_str, user_data['id'])
-            result_sent = True
+        now_local = time.time()
+        remaining, current_server_ts = compute_countdown()
 
-        if show_mode == 'wheel' and not spinning and now - last_auto >= SPIN_DURATION:
+        # ─── When countdown hits zero ───
+        if remaining <= 0 and not spinning:
+            # Spin the wheel
             spins = random.randint(3, 6)
             seg = random.randrange(num_segments)
             half = 360 / (2 * num_segments)
             final_ang = seg * (360 / num_segments) + half
             total_rot = spins * 360 + final_ang
-            spin_start = now
+            spin_start = current_server_ts
             spinning = True
-            last_auto = now
-            save_last_spin_timestamp(now)
-            next_spin_time = last_auto + SPIN_DURATION
-            next_withdraw_ts = last_auto + SPIN_DURATION + WITHDRAW_BUFFER
 
-            dt_withdraw = datetime.fromtimestamp(next_withdraw_ts)
-            if dt_withdraw.minute % 2 == 1:
-                next_withdraw_ts -= 60
+            # Immediately send withdraw request
+            send_withdraw_request(globals.Withdraw_time, user_data['id'])
+            result_sent = True
 
-            withdraw_str = format_withdraw_time(next_withdraw_ts)
-            globals.Withdraw_time = withdraw_str
-            result_sent = False
+            # Reset cycle: schedule next_action_ts = current_server_ts + 120s, align :00
+            new_dt = datetime.fromtimestamp(current_server_ts + CYCLE_DURATION)
+            new_dt = new_dt.replace(second=0, microsecond=0)
+            if new_dt.minute % 2 == 1:
+                new_dt += timedelta(minutes=1)
+            next_action_ts = new_dt.timestamp()
+            save_last_cycle_timestamp(current_server_ts)
 
+            globals.Withdraw_time = format_withdraw_time(next_action_ts)
+            withdraw_ts = next_action_ts
+            cycle_duration = withdraw_ts - base_server_ts
+
+        # ─── Handle Pygame events ───
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 pygame.quit()
@@ -264,68 +318,43 @@ def launch_main_app(user_data):
                     if back_btn.collidepoint(ev.pos):
                         show_mode = 'wheel'
 
+        # ─── Drawing ───
         screen.fill(BLACK)
 
         if show_mode == 'wheel':
             screen.blit(bg_img, (0, 0))
-            # 1) Draw the top margin with a “wooden‐black” solid fill:
-            pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
-            pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
 
-            # 2) Draw a 2px‐thick red line exactly at the bottom edge of the header:
+            # Header background + red border
+            pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
             border_thickness = 2
-            y_border = margin_top - border_thickness  # flush at the very bottom
-            pygame.draw.line(
-                screen,
-                (255, 0, 0),            # red
-                (0,            y_border),
-                (sw,           y_border),
-                border_thickness
-            )
+            y_border = margin_top - border_thickness
+            pygame.draw.line(screen, (255, 0, 0), (0, y_border), (sw, y_border), border_thickness)
+
             mx, my = pygame.mouse.get_pos()
 
-            # ─── PREPARE DEFAULT‐SIZE GRADIENTS (for non‐hover state) ───
+            # Prepare gradients (for hover)
             close_gradient = create_gold_gradient_surface(close_btn.width, close_btn.height)
             min_gradient   = create_gold_gradient_surface(min_btn.width, min_btn.height)
 
-
-            # ─── CLOSE BUTTON ("X") ───
+            # ─── CLOSE BUTTON (“X”) ───
             is_hover_close = close_btn.collidepoint(mx, my)
-
             if is_hover_close:
-                # 1) Inflate the rect by (4, 4) for hover (→ 2px on each side)
                 hover_rect = close_btn.inflate(6, 6)
-                # 2) Create a slightly larger gradient for the inflated rect
-                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
-                # 3) Draw solid-yellow background (you can also blur this if you want consistent look)
-                #    (If you prefer still using a gradient on hover, just blit hover_grad instead of drawing YELLOW_BG.)
                 pygame.draw.rect(screen, YELLOW_BG, hover_rect)
-
-                # 4) Draw violet border around the inflated rect
                 pygame.draw.rect(screen, VIOLET, hover_rect, 2)
-
-                # 5) Draw the “X” symbol centered on the original center (inflated has same center)
                 cx, cy = close_btn.center
-                off = 8  # fixed offset from center to endpoints
+                off = 8
                 pygame.draw.line(screen, VIOLET, (cx - off, cy - off), (cx + off, cy + off), 3)
                 pygame.draw.line(screen, VIOLET, (cx - off, cy + off), (cx + off, cy - off), 3)
-
             else:
-                # Non‐hover: draw the gold gradient at original size
                 hover_rect = close_btn.inflate(4, 4)
-                # 2) Create a slightly larger gradient for the inflated rect
-                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
-                # 3) Draw solid-yellow background (you can also blur this if you want consistent look)
-                #    (If you prefer still using a gradient on hover, just blit hover_grad instead of drawing YELLOW_BG.)
                 pygame.draw.rect(screen, YELLOW_BG, hover_rect)
-
-                # Draw “X” in white
                 cx, cy = close_btn.center
                 off = 8
                 pygame.draw.line(screen, BLACK, (cx - off, cy - off), (cx + off, cy + off), 3)
                 pygame.draw.line(screen, BLACK, (cx - off, cy + off), (cx + off, cy - off), 3)
 
-
+            # ─── PLAYER NAME & BALANCE ───
             player_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}"
             player_surf = font.render(player_name, True, YELLOW_BG)
             player_rect = player_surf.get_rect()
@@ -333,64 +362,41 @@ def launch_main_app(user_data):
             balance_text = f"Balance : {user_data.get('points', 0)}"
             balance_surf = font.render(balance_text, True, YELLOW_BG)
             balance_rect = balance_surf.get_rect()
-
-            # spacing between balance‐border and minimize button
-            spacing = 10  
-            # padding inside the balance border (x– and y–)
-            border_padding_x = 10  
-            border_padding_y = 4   
-
-            # Create the border rect around the “Balance” text
+            spacing = 10
+            border_padding_x = 10
+            border_padding_y = 4
             balance_border = balance_rect.inflate(border_padding_x, border_padding_y)
             balance_border.right = min_btn.left - spacing
-
-            # **Vertically center both player_rect and balance_border inside the header:**
             vertical_center = margin_top // 2
             player_rect.centery = vertical_center
             balance_border.centery = vertical_center
-
-            # Now position the balance text itself inside that border:
             balance_rect.left = balance_border.left + (border_padding_x // 2)
             balance_rect.top  = balance_border.top  + (border_padding_y // 2)
-
-            # Finally, push the player name so it sits just left of the balance border:
-            gap = 10  # horizontal gap between player name and balance-border
+            gap = 10
             player_rect.right = balance_border.left - gap
 
-            # 4) Blit everything in order:
             screen.blit(player_surf, player_rect)
-            pygame.draw.rect(screen, YELLOW_BG, balance_border, width=1)  # 1px yellow border
+            pygame.draw.rect(screen, YELLOW_BG, balance_border, 2)
             screen.blit(balance_surf, balance_rect)
 
-            # 5) Draw to screen
-            screen.blit(player_surf, (player_rect.left, player_rect.top))
-            pygame.draw.rect(screen, YELLOW_BG, balance_border, 2)
-            screen.blit(balance_surf, (balance_rect.left, balance_rect.top))
-            # ─── MINIMIZE BUTTON ("–") ───
+            # ─── MINIMIZE BUTTON (“–”) ───
             is_hover_min = min_btn.collidepoint(mx, my)
-
             if is_hover_min:
                 hover_rect = min_btn.inflate(6, 6)
-                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
                 pygame.draw.rect(screen, YELLOW_BG, hover_rect)
                 pygame.draw.rect(screen, VIOLET, hover_rect, 2)
-
-                # Draw “–” in BLACK (centered at the same center as original)
                 mx_c, my_c = min_btn.center
                 off = 8
                 pygame.draw.line(screen, BLACK, (mx_c - off, my_c), (mx_c + off, my_c), 3)
-
             else:
                 hover_rect = min_btn.inflate(4, 4)
-                hover_grad = create_gold_gradient_surface(hover_rect.width, hover_rect.height)
                 pygame.draw.rect(screen, YELLOW_BG, hover_rect)
                 pygame.draw.rect(screen, BLACK, hover_rect, 2)
-
                 mx_c, my_c = min_btn.center
                 off = 8
                 pygame.draw.line(screen, BLACK, (mx_c - off, my_c), (mx_c + off, my_c), 3)
 
-
+            # ─── Current date/time & Win points ───
             current_clock = datetime.now().strftime('%H:%M:%S')
             current_date = datetime.now().strftime('%d-%m-%Y')
             info_txt = (
@@ -401,15 +407,17 @@ def launch_main_app(user_data):
             text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
             screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
 
+            # ─── LEFT TABLE (history preview) ───
             draw_left_table(
-                screen, now, labels_kjq, labels_suits,
+                screen, current_server_ts, labels_kjq, labels_suits,
                 x0=50, y0=100 + margin_top,
                 label_size=label_size, suit_size=suit_size,
                 small_font=small_font
             )
 
+            # ─── UPDATE & DRAW WHEEL ───
             if spinning:
-                current_ang, spinning = update_spin(now, spin_start, total_rot)
+                current_ang, spinning = update_spin(now_local, spin_start, total_rot)
 
             draw_wheel(
                 screen, wheel_center, outer_radius, mid_radius,
@@ -417,9 +425,21 @@ def launch_main_app(user_data):
                 mid_colors, labels_kjq, labels_suits, current_ang
             )
 
-            draw_countdown(now)
+            # ─── DRAW COUNTDOWN RING & TIMER TEXT ───
+            radius = int(min(sw, sh) * 0.05)
+            padding_br = 20
+            center = (sw - radius - padding_br, sh - radius - padding_br)
+            draw_timer_ring(screen, center, radius, remaining, cycle_duration)
+            fs = int(min(sw, sh) * 0.04)
+            countdown_font = pygame.font.SysFont("Arial", fs, bold=True)
+            txt_surf = countdown_font.render(f"{remaining}s", True, WHITE)
+            screen.blit(txt_surf, (center[0] - txt_surf.get_width() // 2,
+                                   center[1] - txt_surf.get_height() // 2))
+
+            # ─── DRAW “Withdraw @ HH:MM:00” LABEL ───
             draw_withdraw_time_label()
 
+            # ─── NAV BUTTONS ───
             for btn, txt in [(account_btn, "Account"),
                              (history_btn, "History"),
                              (simple_btn, "Card History")]:
@@ -440,7 +460,7 @@ def launch_main_app(user_data):
             pygame.draw.rect(screen, ORANGE, back_btn)
             screen.blit(
                 pygame.font.SysFont("Arial", 32, bold=True).render("Close", True, BLACK),
-                (back_btn.x + 20, back_btn.y + 5)
+                (back_btn.x + 20, back_btn.y + 5) 
             )
 
         elif show_mode == 'summary':
@@ -467,7 +487,7 @@ def launch_main_app(user_data):
                 (back_btn.x + 20, back_btn.y + 5)
             )
 
-        else:
+        else:  # show_mode == 'simple'
             cols = ["card_type", "ticket_serial", "bet_amount", "claim_point", "unclaim_point"]
             draw_table(
                 screen, cols, mapped_list, "Card History",
