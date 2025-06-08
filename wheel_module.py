@@ -330,6 +330,17 @@ ANGLE_STEPS = 60
 import math
 import pygame
 from pygame import gfxdraw
+SHADOW_OFFSET    = 6
+SHADOW_COLOR     = (0, 0, 0, 100)
+TABLE_BG         = (16, 16, 16)
+GRID             = (50, 50, 50)
+ANGLE_STEPS      = 30
+RIBBON_COLOR_RGB = (200, 0, 0)
+RIBBON_ALPHA     = 200
+GOLD             = (212, 175, 55)
+RED_BG           = (200, 0, 0)      # Solid red inner circle background
+
+# ─── WHEEL DRAWING ─────────────────────────────────────────────────────────────
 def draw_wheel(
     surf,
     wheel_center,
@@ -342,22 +353,34 @@ def draw_wheel(
     labels_kjq,
     labels_suits,
     current_ang,
+    is_spinning=False,
+    anim_offset=0.0,
+    result_index=None,
     highlight_index=None,
     highlight_on=False
 ):
     """
-    Draws the spinning wheel onto `surf`. If highlight_index is not None and
-    highlight_on=True, the segment at highlight_index is drawn in a brighter color
-    with a yellow border. Otherwise, everything is drawn normally.
+    Draws the spinning wheel onto `surf`.
+
+    • highlight_index/highlight_on: if highlight_on=True, the outer segment at
+      highlight_index is filled solid green and outlined in green.
+
+    • While is_spinning=True: the inner circle is solid red, and one label
+      (“1X” → “2X” → “3X” → “4X” → “N”) appears, cycling at ~5 labels/sec.
+
+    • Once is_spinning=False and result_index is provided, that same red inner
+      circle displays the winning segment’s rank+suit icons side-by-side, with a
+      large “N” directly below them.
     """
 
+    # 1) Recompute radii if surface size changed
     width, height = surf.get_size()
     min_dim = min(width, height)
     outer_radius = int(min_dim * 0.30)
     mid_radius   = int(min_dim * 0.18)
     inner_radius = int(min_dim * 0.08)
 
-    # Arrow sizes
+    # Arrow sizes (unchanged)
     inner_arrow_w = inner_arrow_h = 20
     ribbon_arrow_w = ribbon_arrow_h = 20
 
@@ -365,18 +388,18 @@ def draw_wheel(
     ribbon_thickness = max(6, int(min_dim * 0.015))
     current_rad = math.radians(current_ang)
 
-    # Generate palettes for outer ring if not provided
+    # If no palette provided, generate one
     if outer_segment_colors is None:
         outer_segment_colors = _generate_hsv_palette(num_segments, 75, 100, 255)
 
-    # Prepare off-screen surface for drop shadow and drawing
-    temp_size = (outer_radius * 2 + SHADOW_OFFSET * 2,
-                 outer_radius * 2 + SHADOW_OFFSET * 2)
-    temp_surf = pygame.Surface(temp_size, pygame.SRCALPHA)
+    # 2) Off-screen surface for drop shadow + drawing
+    temp_size   = (outer_radius * 2 + SHADOW_OFFSET * 2,
+                   outer_radius * 2 + SHADOW_OFFSET * 2)
+    temp_surf   = pygame.Surface(temp_size, pygame.SRCALPHA)
     temp_center = (outer_radius + SHADOW_OFFSET,
                    outer_radius + SHADOW_OFFSET)
 
-    # Draw drop shadow
+    # 3) Draw drop shadow
     gfxdraw.filled_circle(
         temp_surf,
         temp_center[0],
@@ -385,17 +408,17 @@ def draw_wheel(
         SHADOW_COLOR
     )
 
-    # Draw outer wheel background (white) and border
+    # 4) Draw outer wheel background + border
     gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1],
                           outer_radius, (*TABLE_BG, 255))
     gfxdraw.aacircle(temp_surf, temp_center[0], temp_center[1],
                      outer_radius, (*GRID, 255))
 
-    # Draw outer wheel segments
+    # 5) Draw outer-ring segments
     for i in range(num_segments):
         start = math.radians(i * 360 / num_segments) + current_rad
         end   = start + math.radians(360 / num_segments)
-        pts = [temp_center]
+        pts   = [temp_center]
         for s in range(ANGLE_STEPS + 1):
             a = start + (end - start) * (s / ANGLE_STEPS)
             x = temp_center[0] + outer_radius * math.cos(a)
@@ -403,39 +426,33 @@ def draw_wheel(
             pts.append((int(x), int(y)))
 
         if i == highlight_index and highlight_on:
-            # Brighten this segment's color and draw a thick yellow outline
-            base_color = outer_segment_colors[i]
-            r, g, b = base_color
-            bright = (min(255, r + 100), min(255, g + 100), min(255, b + 100))
-            gfxdraw.filled_polygon(temp_surf, pts, bright)
-            pygame.draw.polygon(temp_surf, (255, 255, 0), pts, 3)
+            # Fill this segment solid green and outline in green
+            green_fill = (0, 255, 0)
+            gfxdraw.filled_polygon(temp_surf, pts, green_fill)
+            pygame.draw.polygon(temp_surf, green_fill, pts, 3)
         else:
             gfxdraw.filled_polygon(temp_surf, pts, outer_segment_colors[i])
             pygame.draw.polygon(temp_surf, GRID, pts, 1)
 
-    # Define the “K/Q/J” order in outer ring:
+    # 6) Draw “K/Q/J” rank icons around the outer ring (no suit icons in outer ring)
     ranks = ['K', 'Q', 'J']
-    suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
-
-    # Draw rank icons on each segment (outer circle)
     for i in range(num_segments):
-        rank = ranks[i // 4]  # 0–3 → K, 4–7 → Q, 8–11 → J
-        ang = math.radians((i + 0.5) * 360 / num_segments) + current_rad
-
+        rank = ranks[i // 4]  # 0–3→K, 4–7→Q, 8–11→J
+        ang  = math.radians((i + 0.5) * 360 / num_segments) + current_rad
         rank_radius = outer_radius * 0.85
         rx = int(temp_center[0] + rank_radius * math.cos(ang))
         ry = int(temp_center[1] + rank_radius * math.sin(ang))
         rank_img = labels_kjq[rank]
         temp_surf.blit(rank_img, rank_img.get_rect(center=(rx, ry)))
 
-    # Mid ring: gradient from white → darker
+    # 7) Mid-ring: white→darker gradient
     inner_grad = mid_radius - int(mid_radius * 0.3)
     for r in range(mid_radius, inner_grad, -1):
         shade = 255 - int((mid_radius - r) / (mid_radius - inner_grad) * 100)
         gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1], r,
                               (shade, shade, shade))
 
-    # Radial lines between mid ring and inner ring
+    # 8) Draw radial lines connecting mid ring → inner circle
     for i in range(num_segments):
         ang = math.radians(i * 360 / num_segments) + current_rad
         x1  = temp_center[0] + inner_radius * math.cos(ang)
@@ -444,7 +461,8 @@ def draw_wheel(
         y2  = temp_center[1] + mid_radius * math.sin(ang)
         pygame.draw.aaline(temp_surf, GRID, (int(x1), int(y1)), (int(x2), int(y2)))
 
-    # Draw suit icons in the mid ring
+    # 9) Draw suit icons in the mid ring
+    suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
     suit_size = int(mid_radius * 0.3)
     for i in range(num_segments):
         ang = math.radians((i + 0.5) * 360 / num_segments) + current_rad
@@ -456,24 +474,63 @@ def draw_wheel(
         )
         temp_surf.blit(suit_img, suit_img.get_rect(center=(mx, my)))
 
-    # Inner circle segments (alternating dark/light gold)
-    DARK_GOLD  = (*GOLD, 255)
-    LIGHT_GOLD = (*GOLD, 254)
-    for i in range(num_segments):
-        start = math.radians(i * 360 / num_segments)
-        end   = start + math.radians(360 / num_segments)
-        pts = [temp_center]
-        for s in range(ANGLE_STEPS + 1):
-            a = start + (end - start) * (s / ANGLE_STEPS)
-            x = temp_center[0] + inner_radius * math.cos(a)
-            y = temp_center[1] + inner_radius * math.sin(a)
-            pts.append((int(x), int(y)))
-        gfxdraw.filled_polygon(
-            temp_surf, pts,
-            DARK_GOLD if i % 2 == 0 else LIGHT_GOLD
-        )
+    # 10) Inner circle:
+    if is_spinning:
+        # 10a) Solid red background + border
+        gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1],
+                              inner_radius, RED_BG)
+        gfxdraw.aacircle(temp_surf, temp_center[0], temp_center[1],
+                         inner_radius, (*GRID, 255))
 
-    # Draw ribbon (outermost border circle)
+        # 10b) Single scrolling label: ["1X", "2X", "3X", "4X", "N"]
+        scroll_texts = ["1X", "2X", "3X", "4X", "N"]
+        font_size = max(12, inner_radius // 2)
+        tw_font = pygame.font.SysFont("Arial", font_size, bold=True)
+
+        idx = int(anim_offset) % len(scroll_texts)
+        txt = scroll_texts[idx]
+        rendered = tw_font.render(txt, True, (255, 255, 255))
+        text_w   = rendered.get_width()
+        text_h   = rendered.get_height()
+        x = temp_center[0] - text_w // 2
+        y = temp_center[1] - text_h // 2
+        temp_surf.blit(rendered, (x, y))
+
+    else:
+        # 10c) Once stopped → fill inner circle solid red + border
+        gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1],
+                              inner_radius, RED_BG)
+        gfxdraw.aacircle(temp_surf, temp_center[0], temp_center[1],
+                         inner_radius, (*GRID, 255))
+
+        # 10d) If result_index is valid, draw its rank+suit icons side-by-side
+        if isinstance(result_index, int) and 0 <= result_index < num_segments:
+            ranks = ['K', 'Q', 'J']
+            suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
+            rank = ranks[result_index // 4]
+            suit = suits[result_index % 4]
+
+            # Icon dimensions: about 70% of inner_radius in height
+            icon_h = int(inner_radius * 0.7)
+            icon_w = icon_h  # square
+            rank_img = pygame.transform.smoothscale(labels_kjq[rank], (icon_w, icon_h))
+            suit_img = pygame.transform.smoothscale(labels_suits[suit], (icon_w, icon_h))
+
+            # Place side-by-side, with 10px gap
+            total_width = icon_w * 2 + 10
+            left_x = temp_center[0] - total_width // 2
+            rank_rect = rank_img.get_rect(center=(left_x + icon_w // 2, temp_center[1]))
+            suit_rect = suit_img.get_rect(center=(left_x + icon_w + 10 + icon_w // 2, temp_center[1]))
+            temp_surf.blit(rank_img, rank_rect)
+            temp_surf.blit(suit_img, suit_rect)
+
+            # Draw letter “N” just below the icons
+            font_n = pygame.font.SysFont("Arial", max(16, inner_radius // 3), bold=True)
+            text_n = font_n.render("N", True, (255, 255, 255))
+            text_rect = text_n.get_rect(center=(temp_center[0], temp_center[1] + icon_h // 2 + 15))
+            temp_surf.blit(text_n, text_rect)
+
+    # 11) Draw ribbon (outermost border circle)
     ribbon_rad   = outer_radius + ribbon_thickness // 2
     ribbon_color = (*RIBBON_COLOR_RGB, RIBBON_ALPHA)
     gfxdraw.aacircle(
@@ -483,7 +540,7 @@ def draw_wheel(
     pygame.draw.circle(temp_surf, ribbon_color, temp_center,
                        ribbon_rad, ribbon_thickness)
 
-    # Dots and arrows on the ribbon
+    # 12) Dots/arrows on the ribbon (unchanged)
     inner_edge = ribbon_rad - ribbon_thickness // 2
     for i in range(num_segments):
         ang = math.radians(i * 360 / num_segments)
@@ -495,7 +552,7 @@ def draw_wheel(
                 ribbon_thickness // 2 + 2, (*GOLD, 255)
             )
         else:
-            tip_r = inner_edge - ribbon_arrow_h
+            tip_r  = inner_edge - ribbon_arrow_h
             base_r = inner_edge
             tip = (
                 int(temp_center[0] + tip_r * math.cos(ang)),
@@ -509,21 +566,20 @@ def draw_wheel(
             b2 = (int(bx - perp_dx), int(by - perp_dy))
             gfxdraw.filled_polygon(temp_surf, [tip, b1, b2], (*GOLD, 255))
 
-    # Draw the static inner arrow at 12 o'clock
+    # 13) Static inner arrow at 12 o’clock (unchanged)
     tip = (temp_center[0], temp_center[1] - inner_radius - inner_arrow_h)
     b1  = (temp_center[0] - inner_arrow_w // 2, temp_center[1] - inner_radius)
     b2  = (temp_center[0] + inner_arrow_w // 2, temp_center[1] - inner_radius)
     gfxdraw.filled_polygon(temp_surf, [tip, b1, b2], (*GOLD, 255))
     gfxdraw.aapolygon(temp_surf, [tip, b1, b2], (*GOLD, 255))
 
-    # Blit everything onto the main surface
+    # 14) Blit onto the main surface
     dest = pygame.Rect(
         wheel_center[0] - temp_center[0],
         wheel_center[1] - temp_center[1],
         temp_size[0], temp_size[1]
     )
     surf.blit(temp_surf, dest)
-
 
 
 
@@ -561,8 +617,11 @@ GOLDEN         = (255, 215, 0)
 YELLOW         = (255, 255, 0)
 BLACK          = (0, 0, 0)
 DARK_BORDER    = (20, 20, 20)        # slightly black for outer table border
+GREEN   = (0, 255, 0)
+
 
 # Add a dict to store ribbon rects per cell
+ribbon_rects = {}
 ribbon_rects = {}
 
 def draw_left_table(
@@ -576,7 +635,9 @@ def draw_left_table(
     suit_size,
     small_font,
     rows=4,
-    cols=5
+    cols=5,
+    highlight_cell=None,   # a tuple like (ridx, cidx) or None
+    highlight_on=False     # bool: True→green, False→red
 ):
     """
     Draws:
@@ -590,6 +651,7 @@ def draw_left_table(
       5) Any chips placed on the ribbons, hiding the "Play" text.
       6) A visible text displaying the current total bet.
       7) A "Bet" button to submit placed bets.
+      8) If highlight_cell is (ridx,cidx), that ribbon blinks—green when highlight_on=True, red when False.
     """
     global chip_rects, cell_rects, rank_icon_rects, suit_icon_rects, bet_button_rect, ribbon_rects
     chip_rects       = []
@@ -802,7 +864,7 @@ def draw_left_table(
             )
         )
 
-    # 5) Draw play cells (rows 1–3, cols 1–4) with white→light-gray gradient and ribbons (red by default, blue if bet placed)
+    # 5) Draw play cells (rows 1–3, cols 1–4) with white→light-gray gradient and ribbons
     ribbon_font = pygame.font.Font(None, max(6, int(small_font.get_height() * 0.6)))
     for ridx, rank in enumerate(ranks, start=1):
         for cidx, suit in enumerate(suits, start=1):
@@ -849,8 +911,14 @@ def draw_left_table(
             ribbon_rect = pygame.Rect(ribbon_x, ribbon_y, ribbon_w, ribbon_h)
             ribbon_rects[(ridx, cidx)] = ribbon_rect
 
-            # Choose ribbon color: RED by default, BLUE if bet is placed here
-            color = BLUE_RIBBON if (ridx, cidx) in placed_chips else RED
+            # Choose ribbon color:
+            if highlight_cell == (ridx, cidx):
+                # Blink: green if highlight_on=True, red otherwise
+                blink_color = GREEN if highlight_on else RED
+                color = blink_color
+            else:
+                # Normal (red if no chip, blue if chip placed)
+                color = BLUE_RIBBON if (ridx, cidx) in placed_chips else RED
 
             pygame.gfxdraw.filled_polygon(
                 surf,
@@ -1001,13 +1069,14 @@ def handle_click(mouse_pos):
 
     # 1) Bet button
     if bet_button_rect and bet_button_rect.collidepoint(mouse_pos):
+        total_bet_amount = sum(amt for (_, _), amt in placed_chips.items())
         payload = {
             "bets": {f"{r}_{c}": amt for (r, c), amt in placed_chips.items()},
             "Withdraw_time": globals.Withdraw_time,
             "User_id": globals.User_id
         }
         print("Sending payload:", json.dumps(payload, indent=2))
-
+        globals.user_data_points -= total_bet_amount
         resp = requests.post(
             "https://spintofortune.in/api/app_place_bet.php",
             json=payload,
