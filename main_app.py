@@ -182,6 +182,7 @@ def launch_main_app(user_data):
     try:
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
+        print("Response from RESULT_API (at remaining==5):", data)
         server_ts = data.get("server_timestamp", time.time())
     except Exception:
         server_ts = time.time()
