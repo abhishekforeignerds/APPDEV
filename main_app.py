@@ -8,14 +8,65 @@ import requests
 import os
 from datetime import datetime, timedelta
 import globals
+
 import wheel_module
-from wheel_module import draw_wheel, update_spin, draw_left_table, handle_click
+from wheel_module import (
+    draw_wheel,
+    update_spin,
+    draw_left_table,
+    handle_click
+)
 from table_module import draw_table
 
 LAST_SPIN_FILE = "last_spin.json"
 CYCLE_DURATION = 120      # seconds (2 minutes)
-DASHBOARD_API = "https://spintofortune.in/api/app_dashboard_data.php"
-RESULT_API    = "https://spintofortune.in/api/app_make_result.php"
+DASHBOARD_API  = "https://spintofortune.in/api/app_dashboard_data.php"
+RESULT_API     = "https://spintofortune.in/api/app_make_result.php"
+
+def compute_final_angle_for_segment(target_index, num_segments=None):
+    """
+    Returns a fixed “final angle” for each segment index, using explicit if/elif statements.
+    The mapping is:
+      index 0  → 255.0°
+      index 1  → 225.0°
+      index 2  → 195.0°
+      index 3  → 165.0°
+      index 4  → 135.0°
+      index 5  → 105.0°
+      index 6  →  75.0°
+      index 7  →  45.0°
+      index 8  →  15.0°
+      index 9  → 345.0°
+      index 10 → 315.0°
+      index 11 → 285.0°
+    """
+    if target_index == 0:
+        return 255.0
+    elif target_index == 1:
+        return 225.0
+    elif target_index == 2:
+        return 195.0
+    elif target_index == 3:
+        return 165.0
+    elif target_index == 4:
+        return 135.0
+    elif target_index == 5:
+        return 105.0
+    elif target_index == 6:
+        return 75.0
+    elif target_index == 7:
+        return 45.0
+    elif target_index == 8:
+        return 15.0
+    elif target_index == 9:
+        return 345.0
+    elif target_index == 10:
+        return 315.0
+    elif target_index == 11:
+        return 285.0
+    else:
+        raise ValueError(f"Invalid segment index: {target_index}")
+
 
 def resource_path(relative_path):
     try:
@@ -23,6 +74,7 @@ def resource_path(relative_path):
     except AttributeError:
         base_path = os.path.abspath('.')
     return os.path.join(base_path, relative_path)
+
 
 def save_last_cycle_timestamp(ts):
     """Persist the cycle‐start timestamp (i.e. withdraw_ts - CYCLE_DURATION)."""
@@ -32,15 +84,18 @@ def save_last_cycle_timestamp(ts):
     except Exception:
         pass
 
+
 def load_last_cycle_timestamp():
     try:
         return json.load(open(LAST_SPIN_FILE)).get("last_cycle", None)
     except Exception:
         return None
 
+
 def format_withdraw_time(ts):
     # Always display HH:MM:00 (seconds are zeroed)
     return datetime.fromtimestamp(ts).strftime('%H:%M:%S')
+
 
 def create_gold_gradient_surface(width, height):
     gradient = pygame.Surface((width, height))
@@ -54,21 +109,6 @@ def create_gold_gradient_surface(width, height):
         pygame.draw.line(gradient, (r, g, b), (0, y), (width, y))
     return gradient
 
-def send_withdraw_request(withdraw_time, user_id):
-    try:
-        payload = {
-            "withdraw_time": withdraw_time,
-            "user_id":       str(user_id)
-        }
-        resp = requests.post(
-            RESULT_API,
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        print("Sent payload:", payload)
-        print("Raw response:", resp.text)
-    except Exception as e:
-        print("Request error:", e)
 
 def launch_main_app(user_data):
     pygame.init()
@@ -77,12 +117,12 @@ def launch_main_app(user_data):
     screen = pygame.display.set_mode((sw, sh))
     pygame.display.set_caption("Main App - Spinning Wheel and History")
 
-    BLACK = (0, 0, 0)
-    WHITE = (255, 255, 255)
-    ORANGE = (255, 152, 0)
-    WOOD_BLACK = (34, 21, 11)
-    VIOLET     = (148, 0, 211)
-    YELLOW_BG  = (255, 255, 0)
+    BLACK     = (0, 0, 0)
+    WHITE     = (255, 255, 255)
+    ORANGE    = (255, 152, 0)
+    WOOD_BLACK= (34, 21, 11)
+    VIOLET    = (148, 0, 211)
+    YELLOW_BG = (255, 255, 0)
 
     font = pygame.font.SysFont("Arial", 24, bold=True)
     small_font = pygame.font.SysFont("Arial", 20)
@@ -102,13 +142,23 @@ def launch_main_app(user_data):
     bg_img = pygame.image.load(resource_path("overlay-bg.jpg")).convert()
     bg_img = pygame.transform.scale(bg_img, (sw, sh))
 
+    # ───── WHEEL SETUP ───────────────────────────────────────────────────────────
     num_segments   = 12
-    outer_radius   = int(min(sw, sh) * 0.2)
+    outer_radius   = int(min(sw, sh) * 0.20)
     mid_radius     = outer_radius // 2
     inner_radius   = mid_radius // 2
     wheel_center   = (int(sw * 0.75), int(sh // 2))
+
+    # Placeholder colors (modify if needed)
     outer_colors   = [(150, 0, 0)] * num_segments
     mid_colors     = [(0, 0, 100) if i % 2 == 0 else (0, 0, 50) for i in range(num_segments)]
+
+    # ─── INITIAL ANGLE SO INDEX 0 IS “UP” ───
+    initial_ang = compute_final_angle_for_segment(0, num_segments)
+    current_ang = initial_ang
+    spin_base_ang = current_ang
+    total_rot = 0.0
+    spin_start = 0.0
 
     padding    = 10
     icon_size  = int(min(sw, sh) * 0.03)
@@ -141,10 +191,8 @@ def launch_main_app(user_data):
     base_server_ts = server_ts
     base_local_ts  = time.time()
 
-    # ───── DETERMINE THE “NEXT WITHDRAW” ON AN EVEN :00 ─────
+    # ───── FIND “NEXT WITHDRAW” ON AN EVEN :00 ─────
     server_dt = datetime.fromtimestamp(base_server_ts)
-    # If server’s minute is odd → schedule withdraw at next minute :00
-    # Else → schedule withdraw two minutes ahead :00
     if server_dt.minute % 2 == 1:
         candidate = server_dt.replace(second=0, microsecond=0) + timedelta(minutes=1)
     else:
@@ -152,11 +200,8 @@ def launch_main_app(user_data):
 
     next_action_ts = candidate.timestamp()
 
-    # ───── SET CYCLE START (so that countdown always begins from 120) ─────
-    # cycle_start_ts = withdraw_ts - CYCLE_DURATION  → this ensures a full 120s countdown
+    # ───── SET CYCLE START (COUNTDOWN FROM 120s) ─────
     cycle_start_ts = next_action_ts - CYCLE_DURATION
-
-    # Persist that cycle-start timestamp
     save_last_cycle_timestamp(cycle_start_ts)
 
     withdraw_ts = next_action_ts
@@ -165,27 +210,30 @@ def launch_main_app(user_data):
 
     mapped_list = []
     result_sent = False
+    forced_fetched = False      # Have we fetched forced index this cycle?
+    waiting_for_blink = False   # Set to True once we schedule a spin
+    blink_mode = False          # Set to True when waiting to blink after spin finishes
+    blink_start_time = 0.0
+    highlight_on = False        # Toggles every 0.5s during blink
 
-    # ───── IF WE HAVE AN EXISTING “last_cycle” FROM DISK, CATCH UP ─────
+    # ───── LOAD LAST CYCLE FROM DISK (if any) ─────
     persisted_start = load_last_cycle_timestamp()
     if persisted_start is not None:
-        # Bring "cycle_start_ts" forward in increments of CYCLE_DURATION until it's
-        # just behind the current server time
         last_cycle = persisted_start
         while last_cycle + CYCLE_DURATION <= base_server_ts:
             last_cycle += CYCLE_DURATION
         cycle_start_ts = last_cycle
         next_action_ts = cycle_start_ts + CYCLE_DURATION
-        withdraw_ts = next_action_ts
+        withdraw_ts     = next_action_ts
 
-        # Overwrite globals.Withdraw_time so it’s always on an even :00
         globals.Withdraw_time = format_withdraw_time(withdraw_ts)
         wheel_module.print_withdraw_time()
         save_last_cycle_timestamp(cycle_start_ts)
 
     def api_loop():
         nonlocal mapped_list, base_server_ts, base_local_ts
-        nonlocal next_action_ts, withdraw_ts, cycle_start_ts, result_sent
+        nonlocal next_action_ts, withdraw_ts, cycle_start_ts
+        nonlocal result_sent, forced_fetched, waiting_for_blink
 
         while True:
             time.sleep(2)
@@ -195,43 +243,42 @@ def launch_main_app(user_data):
                 globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
 
-                # If server provides a fresh timestamp, re-sync
                 srv_now = data.get('server_timestamp')
                 if srv_now:
                     base_server_ts = srv_now
                     base_local_ts  = time.time()
 
-                # Check if the server’s “last_spin_timestamp” moved ahead
                 srv_last = data.get('last_spin_timestamp')
                 if srv_last:
-                    # Align that timestamp to the last even‐minute :00
                     srv_dt = datetime.fromtimestamp(srv_last)
                     aligned_min = srv_dt.minute - (srv_dt.minute % 2)
                     aligned_cycle_dt = srv_dt.replace(minute=aligned_min, second=0, microsecond=0)
                     last_cycle = aligned_cycle_dt.timestamp()
 
-                    # Advance in leaps of CYCLE_DURATION so last_cycle is just behind current server time
                     while last_cycle + CYCLE_DURATION <= base_server_ts:
                         last_cycle += CYCLE_DURATION
 
                     cycle_start_ts = last_cycle
-                    next_action_ts  = cycle_start_ts + CYCLE_DURATION
+                    next_action_ts = cycle_start_ts + CYCLE_DURATION
                     withdraw_ts     = next_action_ts
                     globals.Withdraw_time = format_withdraw_time(withdraw_ts)
                     wheel_module.print_withdraw_time()
                     save_last_cycle_timestamp(cycle_start_ts)
 
-                # If server time has already passed the scheduled withdraw → schedule the next one
                 if base_server_ts >= next_action_ts:
-                    # Simply jump ahead by exactly one cycle
+                    # A new cycle has begun
                     cycle_start_ts = next_action_ts
                     next_action_ts = cycle_start_ts + CYCLE_DURATION
-                    withdraw_ts    = next_action_ts
+                    withdraw_ts     = next_action_ts
                     globals.Withdraw_time = format_withdraw_time(withdraw_ts)
                     wheel_module.print_withdraw_time()
                     save_last_cycle_timestamp(cycle_start_ts)
 
-                result_sent = False
+                    # Reset flags for the new cycle
+                    result_sent = False
+                    forced_fetched = False
+                    waiting_for_blink = False
+                    # blink_mode will also be False by this point.
 
             except Exception:
                 pass
@@ -239,10 +286,7 @@ def launch_main_app(user_data):
     threading.Thread(target=api_loop, daemon=True).start()
 
     clock = pygame.time.Clock()
-    spinning = False
-    current_ang = 0.0
-    spin_start  = 0.0
-    total_rot   = 0.0
+    spinning    = False
     show_mode   = 'wheel'
 
     def draw_timer_ring(surface, center, radius, remaining, total):
@@ -281,29 +325,51 @@ def launch_main_app(user_data):
         now_local = time.time()
         remaining, current_server_ts = compute_countdown()
 
-        # ─── When countdown hits zero ───
+        # ─── Fetch forced segment when remaining <= 5 ───
+        if remaining <= 5 and not forced_fetched:
+            try:
+                payload = {
+                    "withdraw_time": globals.Withdraw_time,
+                    "user_id":       str(user_data['id'])
+                }
+                resp = requests.post(
+                    RESULT_API,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                resp_data = resp.json()
+                choosen = resp_data.get("choosenindex")
+                if choosen is not None:
+                    globals.FORCED_SEGMENT = int(choosen)
+                    print(f"Fetched forced segment: {globals.FORCED_SEGMENT}")
+                forced_fetched = True
+            except Exception as e:
+                print("Error fetching forced segment:", e)
+
+        # ─── When countdown hits zero, begin forced spin ───
         if remaining <= 0 and not spinning:
-            # Spin the wheel
-            spins = random.randint(3, 6)
-            seg = random.randrange(num_segments)
-            half = 360 / (2 * num_segments)
-            final_ang = seg * (360 / num_segments) + half
-            total_rot = spins * 360 + final_ang
-            spin_start = current_server_ts
-            spinning = True
+            spins    = random.randint(3, 6)
+            target_i = globals.FORCED_SEGMENT
 
-            # Immediately send withdraw request
-            send_withdraw_request(globals.Withdraw_time, user_data['id'])
-            result_sent = True
+            desired_final_ang = compute_final_angle_for_segment(target_i, num_segments)
+            delta_ang = (desired_final_ang - spin_base_ang) % 360.0
+            total_rot   = spins * 360.0 + delta_ang
+            spin_start  = current_server_ts
+            spinning    = True
+            waiting_for_blink = True  # We will blink after spin finishes
 
-            # ─── Schedule the next cycle: advance by exactly 120 seconds ───
+            print(f"*** Forcing wheel to STOP on segment #{target_i}; "
+                  f"desired_final_ang={desired_final_ang:.1f}°, "
+                  f"spin_base_ang={spin_base_ang:.1f}°, delta={delta_ang:.1f}°, "
+                  f"total_rot={total_rot:.1f}° ***")
+
+            # Schedule the next cycle (120 s from now)
             cycle_start_ts = cycle_start_ts + CYCLE_DURATION
             next_action_ts = cycle_start_ts + CYCLE_DURATION
             withdraw_ts    = next_action_ts
             globals.Withdraw_time = format_withdraw_time(withdraw_ts)
             wheel_module.print_withdraw_time()
             save_last_cycle_timestamp(cycle_start_ts)
-            # ──────────────────────────────────────────────────────────────
 
         # ─── Handle Pygame events ───
         for ev in pygame.event.get():
@@ -329,140 +395,185 @@ def launch_main_app(user_data):
                     if back_btn.collidepoint(ev.pos):
                         show_mode = 'wheel'
 
-        # ─── Drawing ───
+        # ─── UPDATE SPINNING ANGLE ───
+        if spinning:
+            delta_ang, still_spinning = update_spin(now_local, spin_start, total_rot)
+            current_ang = spin_base_ang + delta_ang
+            if not still_spinning:
+                # Spin just finished
+                spinning = False
+                spin_base_ang = current_ang
+                # Start blinking
+                if waiting_for_blink:
+                    blink_mode = True
+                    blink_start_time = time.time()
+                    waiting_for_blink = False
+        # End of spin-update block
+
+        # ─── DRAW EVERYTHING (INCLUDING BLINK LOGIC) ───
         screen.fill(BLACK)
 
-        if show_mode == 'wheel':
-            screen.blit(bg_img, (0, 0))
+        # Always draw the background first
+        screen.blit(bg_img, (0, 0))
 
-            # Header background + red border
-            pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
-            border_thickness = 2
-            y_border = margin_top - border_thickness
-            pygame.draw.line(screen, (255, 0, 0), (0, y_border), (sw, y_border), border_thickness)
+        # Header + red border
+        pygame.draw.rect(screen, WOOD_BLACK, (0, 0, sw, margin_top))
+        y_border = margin_top - 2
+        pygame.draw.line(screen, (255, 0, 0), (0, y_border), (sw, y_border), 2)
 
-            mx, my = pygame.mouse.get_pos()
+        mx, my = pygame.mouse.get_pos()
 
-            # Prepare gradients (for hover)
-            close_gradient = create_gold_gradient_surface(close_btn.width, close_btn.height)
-            min_gradient   = create_gold_gradient_surface(min_btn.width, min_btn.height)
+        # DRAW CLOSE & MINIMIZE BUTTONS
+        # ─────────────────────────────────────────────────────────────────
+        # (Close = “X”)
+        is_hover_close = close_btn.collidepoint(mx, my)
+        if is_hover_close:
+            hr = close_btn.inflate(6, 6)
+            pygame.draw.rect(screen, YELLOW_BG, hr)
+            pygame.draw.rect(screen, VIOLET, hr, 2)
+            cx, cy = close_btn.center
+            off = 8
+            pygame.draw.line(screen, VIOLET,
+                             (cx - off, cy - off), (cx + off, cy + off), 3)
+            pygame.draw.line(screen, VIOLET,
+                             (cx - off, cy + off), (cx + off, cy - off), 3)
+        else:
+            hr = close_btn.inflate(4, 4)
+            pygame.draw.rect(screen, YELLOW_BG, hr)
+            cx, cy = close_btn.center
+            off = 8
+            pygame.draw.line(screen, BLACK,
+                             (cx - off, cy - off), (cx + off, cy + off), 3)
+            pygame.draw.line(screen, BLACK,
+                             (cx - off, cy + off), (cx + off, cy - off), 3)
 
-            # ─── CLOSE BUTTON (“X”) ───
-            is_hover_close = close_btn.collidepoint(mx, my)
-            if is_hover_close:
-                hover_rect = close_btn.inflate(6, 6)
-                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
-                pygame.draw.rect(screen, VIOLET, hover_rect, 2)
-                cx, cy = close_btn.center
-                off = 8
-                pygame.draw.line(screen, VIOLET, (cx - off, cy - off), (cx + off, cy + off), 3)
-                pygame.draw.line(screen, VIOLET, (cx - off, cy + off), (cx + off, cy - off), 3)
+        # (Minimize = “–”)
+        is_hover_min = min_btn.collidepoint(mx, my)
+        if is_hover_min:
+            hr2 = min_btn.inflate(6, 6)
+            pygame.draw.rect(screen, YELLOW_BG, hr2)
+            pygame.draw.rect(screen, VIOLET, hr2, 2)
+            mx_c, my_c = min_btn.center
+            off = 8
+            pygame.draw.line(screen, BLACK,
+                             (mx_c - off, my_c), (mx_c + off, my_c), 3)
+        else:
+            hr2 = min_btn.inflate(4, 4)
+            pygame.draw.rect(screen, YELLOW_BG, hr2)
+            pygame.draw.rect(screen, BLACK, hr2, 2)
+            mx_c, my_c = min_btn.center
+            off = 8
+            pygame.draw.line(screen, BLACK,
+                             (mx_c - off, my_c), (mx_c + off, my_c), 3)
+
+        # ─── PLAYER NAME & BALANCE ─────────────────────────────────────────────
+        player_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}"
+        player_surf = font.render(player_name, True, YELLOW_BG)
+        player_rect = player_surf.get_rect()
+
+        balance_text = f"Balance : {user_data.get('points', 0)}"
+        balance_surf = font.render(balance_text, True, YELLOW_BG)
+        balance_rect = balance_surf.get_rect()
+        spacing = 10
+        bp_x = 10
+        bp_y = 4
+        balance_border = balance_rect.inflate(bp_x, bp_y)
+        balance_border.right = min_btn.left - spacing
+        v_center = margin_top // 2
+        player_rect.centery = v_center
+        balance_border.centery = v_center
+        balance_rect.left = balance_border.left + (bp_x // 2)
+        balance_rect.top  = balance_border.top  + (bp_y // 2)
+        gap = 10
+        player_rect.right = balance_border.left - gap
+
+        screen.blit(player_surf, player_rect)
+        pygame.draw.rect(screen, YELLOW_BG, balance_border, 2)
+        screen.blit(balance_surf, balance_rect)
+
+        # ─── Current date/time & “Win” points ───────────────────────────────────
+        current_clock = datetime.now().strftime('%H:%M:%S')
+        current_date  = datetime.now().strftime('%d-%m-%Y')
+        info_txt = (
+            f"{current_date}  "
+            f"{current_clock}   "
+            f"Win:{user_data.get('winning_points',0)}"
+        )
+        text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
+        screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
+
+        # ─── LEFT TABLE (history preview) ───────────────────────────────────────
+        draw_left_table(
+            screen, current_server_ts, labels_kjq, labels_suits,
+            x0=50, y0=100 + margin_top,
+            label_size=label_size, suit_size=suit_size,
+            small_font=small_font
+        )
+
+        # ─── DRAW (or BLINK) THE WHEEL ──────────────────────────────────────────
+        if blink_mode:
+            elapsed_blink = time.time() - blink_start_time
+            if elapsed_blink < 5.0:
+                # Toggle highlight every 0.5 sec
+                highlight_on = (int((elapsed_blink * 1000) // 500) % 2 == 0)
+                draw_wheel(
+                    screen, wheel_center, outer_radius, mid_radius,
+                    inner_radius, num_segments, outer_colors,
+                    mid_colors, labels_kjq, labels_suits,
+                    current_ang,
+                    highlight_index=globals.FORCED_SEGMENT,
+                    highlight_on=highlight_on
+                )
             else:
-                hover_rect = close_btn.inflate(4, 4)
-                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
-                cx, cy = close_btn.center
-                off = 8
-                pygame.draw.line(screen, BLACK, (cx - off, cy - off), (cx + off, cy + off), 3)
-                pygame.draw.line(screen, BLACK, (cx - off, cy + off), (cx + off, cy - off), 3)
-
-            # ─── PLAYER NAME & BALANCE ───
-            player_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}"
-            player_surf = font.render(player_name, True, YELLOW_BG)
-            player_rect = player_surf.get_rect()
-
-            balance_text = f"Balance : {user_data.get('points', 0)}"
-            balance_surf = font.render(balance_text, True, YELLOW_BG)
-            balance_rect = balance_surf.get_rect()
-            spacing = 10
-            border_padding_x = 10
-            border_padding_y = 4
-            balance_border = balance_rect.inflate(border_padding_x, border_padding_y)
-            balance_border.right = min_btn.left - spacing
-            vertical_center = margin_top // 2
-            player_rect.centery = vertical_center
-            balance_border.centery = vertical_center
-            balance_rect.left = balance_border.left + (border_padding_x // 2)
-            balance_rect.top  = balance_border.top  + (border_padding_y // 2)
-            gap = 10
-            player_rect.right = balance_border.left - gap
-
-            screen.blit(player_surf, player_rect)
-            pygame.draw.rect(screen, YELLOW_BG, balance_border, 2)
-            screen.blit(balance_surf, balance_rect)
-
-            # ─── MINIMIZE BUTTON (“–”) ───
-            is_hover_min = min_btn.collidepoint(mx, my)
-            if is_hover_min:
-                hover_rect = min_btn.inflate(6, 6)
-                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
-                pygame.draw.rect(screen, VIOLET, hover_rect, 2)
-                mx_c, my_c = min_btn.center
-                off = 8
-                pygame.draw.line(screen, BLACK, (mx_c - off, my_c), (mx_c + off, my_c), 3)
-            else:
-                hover_rect = min_btn.inflate(4, 4)
-                pygame.draw.rect(screen, YELLOW_BG, hover_rect)
-                pygame.draw.rect(screen, BLACK, hover_rect, 2)
-                mx_c, my_c = min_btn.center
-                off = 8
-                pygame.draw.line(screen, BLACK, (mx_c - off, my_c), (mx_c + off, my_c), 3)
-
-            # ─── Current date/time & Win points ───
-            current_clock = datetime.now().strftime('%H:%M:%S')
-            current_date  = datetime.now().strftime('%d-%m-%Y')
-            info_txt = (
-                f"{current_date}  "
-                f"{current_clock}   "
-                f"Win:{user_data.get('winning_points',0)}"
-            )
-            text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
-            screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
-
-            # ─── LEFT TABLE (history preview) ───
-            draw_left_table(
-                screen, current_server_ts, labels_kjq, labels_suits,
-                x0=50, y0=100 + margin_top,
-                label_size=label_size, suit_size=suit_size,
-                small_font=small_font
-            )
-
-            # ─── UPDATE & DRAW WHEEL ───
-            if spinning:
-                current_ang, spinning = update_spin(now_local, spin_start, total_rot)
-
+                # 5 seconds of blinking are over
+                blink_mode = False
+                draw_wheel(
+                    screen, wheel_center, outer_radius, mid_radius,
+                    inner_radius, num_segments, outer_colors,
+                    mid_colors, labels_kjq, labels_suits, current_ang
+                )
+        else:
+            # Normal wheel drawing (no highlight)
             draw_wheel(
                 screen, wheel_center, outer_radius, mid_radius,
                 inner_radius, num_segments, outer_colors,
                 mid_colors, labels_kjq, labels_suits, current_ang
             )
 
-            # ─── DRAW COUNTDOWN RING & TIMER TEXT ───
-            radius = int(min(sw, sh) * 0.05)
-            padding_br = 20
-            center = (sw - radius - padding_br, sh - radius - padding_br)
-            draw_timer_ring(screen, center, radius, remaining, CYCLE_DURATION)
-            fs = int(min(sw, sh) * 0.04)
-            countdown_font = pygame.font.SysFont("Arial", fs, bold=True)
-            txt_surf = countdown_font.render(f"{remaining}s", True, WHITE)
-            screen.blit(txt_surf, (center[0] - txt_surf.get_width() // 2,
-                                   center[1] - txt_surf.get_height() // 2))
+        # ─── DRAW COUNTDOWN RING & TIMER TEXT ─────────────────────────────────
+        radius = int(min(sw, sh) * 0.05)
+        padding_br = 20
+        center = (sw - radius - padding_br, sh - radius - padding_br)
+        draw_timer_ring(screen, center, radius, remaining, CYCLE_DURATION)
+        fs = int(min(sw, sh) * 0.04)
+        countdown_font = pygame.font.SysFont("Arial", fs, bold=True)
+        txt_surf = countdown_font.render(f"{remaining}s", True, WHITE)
+        screen.blit(txt_surf, (
+            center[0] - txt_surf.get_width() // 2,
+            center[1] - txt_surf.get_height() // 2
+        ))
 
-            # ─── DRAW “Withdraw @ HH:MM:00” LABEL ───
-            draw_withdraw_time_label()
+        # ─── DRAW “Withdraw @ HH:MM:00” ───────────────────────────────────────
+        draw_withdraw_time_label()
 
-            # ─── NAV BUTTONS ───
-            for btn, txt in [(account_btn, "Account"),
-                             (history_btn, "History"),
-                             (simple_btn, "Card History")]:
-                pygame.draw.rect(screen, ORANGE, btn)
-                w, h = font.size(txt)
-                screen.blit(
-                    font.render(txt, True, BLACK),
-                    (btn.x + (btn.width - w) // 2, btn.y + (btn.height - h) // 2)
-                )
+        # ─── DRAW NAV BUTTONS ─────────────────────────────────────────────────
+        for btn, txt in [
+            (account_btn, "Account"),
+            (history_btn, "History"),
+            (simple_btn, "Card History")
+        ]:
+            pygame.draw.rect(screen, ORANGE, btn)
+            w, h = font.size(txt)
+            screen.blit(
+                font.render(txt, True, BLACK),
+                (btn.x + (btn.width - w) // 2,
+                 btn.y + (btn.height - h) // 2)
+            )
 
-        elif show_mode == 'history':
-            cols = ["card_type", "ticket_serial", "bet_amount", "claim_point", "unclaim_point", "status", "action"]
+        # ─── “History” SCREEN ─────────────────────────────────────────────────
+        if show_mode == 'history':
+            cols = ["card_type", "ticket_serial", "bet_amount",
+                    "claim_point", "unclaim_point", "status", "action"]
             draw_table(
                 screen, cols, mapped_list, "History",
                 pygame.font.SysFont("Arial", 32, bold=True),
@@ -474,6 +585,7 @@ def launch_main_app(user_data):
                 (back_btn.x + 20, back_btn.y + 5)
             )
 
+        # ─── “Summary” SCREEN ─────────────────────────────────────────────────
         elif show_mode == 'summary':
             total_sale = sum(float(i.get('bet_amount', 0)) for i in mapped_list)
             total_win  = sum(float(i.get('claim_point', 0)) for i in mapped_list)
@@ -498,8 +610,10 @@ def launch_main_app(user_data):
                 (back_btn.x + 20, back_btn.y + 5)
             )
 
-        else:  # show_mode == 'simple'
-            cols = ["card_type", "ticket_serial", "bet_amount", "claim_point", "unclaim_point"]
+        # ─── “Simple” SCREEN ──────────────────────────────────────────────────
+        elif show_mode == 'simple':
+            cols = ["card_type", "ticket_serial", "bet_amount",
+                    "claim_point", "unclaim_point"]
             draw_table(
                 screen, cols, mapped_list, "Card History",
                 pygame.font.SysFont("Arial", 32, bold=True),
@@ -513,6 +627,7 @@ def launch_main_app(user_data):
 
         pygame.display.flip()
         clock.tick(60)
+
 
 if __name__ == "__main__":
     dummy = {

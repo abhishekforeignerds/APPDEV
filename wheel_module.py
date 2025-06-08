@@ -327,6 +327,9 @@ GOLD = (255, 215, 0)
 
 ANGLE_STEPS = 60
 
+import math
+import pygame
+from pygame import gfxdraw
 def draw_wheel(
     surf,
     wheel_center,
@@ -338,9 +341,16 @@ def draw_wheel(
     mid_segment_colors,
     labels_kjq,
     labels_suits,
-    current_ang
+    current_ang,
+    highlight_index=None,
+    highlight_on=False
 ):
-    # Recalculate radii based on surface size
+    """
+    Draws the spinning wheel onto `surf`. If highlight_index is not None and
+    highlight_on=True, the segment at highlight_index is drawn in a brighter color
+    with a yellow border. Otherwise, everything is drawn normally.
+    """
+
     width, height = surf.get_size()
     min_dim = min(width, height)
     outer_radius = int(min_dim * 0.30)
@@ -360,19 +370,26 @@ def draw_wheel(
         outer_segment_colors = _generate_hsv_palette(num_segments, 75, 100, 255)
 
     # Prepare off-screen surface for drop shadow and drawing
-    temp_size = (outer_radius*2 + SHADOW_OFFSET*2, outer_radius*2 + SHADOW_OFFSET*2)
+    temp_size = (outer_radius * 2 + SHADOW_OFFSET * 2,
+                 outer_radius * 2 + SHADOW_OFFSET * 2)
     temp_surf = pygame.Surface(temp_size, pygame.SRCALPHA)
-    temp_center = (outer_radius + SHADOW_OFFSET, outer_radius + SHADOW_OFFSET)
+    temp_center = (outer_radius + SHADOW_OFFSET,
+                   outer_radius + SHADOW_OFFSET)
 
     # Draw drop shadow
     gfxdraw.filled_circle(
-        temp_surf, temp_center[0], temp_center[1] + SHADOW_OFFSET,
-        outer_radius, SHADOW_COLOR
+        temp_surf,
+        temp_center[0],
+        temp_center[1] + SHADOW_OFFSET,
+        outer_radius,
+        SHADOW_COLOR
     )
 
     # Draw outer wheel background (white) and border
-    gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1], outer_radius, (*TABLE_BG, 255))
-    gfxdraw.aacircle(temp_surf, temp_center[0], temp_center[1], outer_radius, (*GRID, 255))
+    gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1],
+                          outer_radius, (*TABLE_BG, 255))
+    gfxdraw.aacircle(temp_surf, temp_center[0], temp_center[1],
+                     outer_radius, (*GRID, 255))
 
     # Draw outer wheel segments
     for i in range(num_segments):
@@ -384,25 +401,41 @@ def draw_wheel(
             x = temp_center[0] + outer_radius * math.cos(a)
             y = temp_center[1] + outer_radius * math.sin(a)
             pts.append((int(x), int(y)))
-        gfxdraw.filled_polygon(temp_surf, pts, outer_segment_colors[i])
-        pygame.draw.polygon(temp_surf, GRID, pts, 1)
 
-    # Draw K/J/Q icons on outer ring
-    ranks = ['K', 'J', 'Q']
+        if i == highlight_index and highlight_on:
+            # Brighten this segment's color and draw a thick yellow outline
+            base_color = outer_segment_colors[i]
+            r, g, b = base_color
+            bright = (min(255, r + 100), min(255, g + 100), min(255, b + 100))
+            gfxdraw.filled_polygon(temp_surf, pts, bright)
+            pygame.draw.polygon(temp_surf, (255, 255, 0), pts, 3)
+        else:
+            gfxdraw.filled_polygon(temp_surf, pts, outer_segment_colors[i])
+            pygame.draw.polygon(temp_surf, GRID, pts, 1)
+
+    # Define the “K/Q/J” order in outer ring:
+    ranks = ['K', 'Q', 'J']
+    suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
+
+    # Draw rank icons on each segment (outer circle)
     for i in range(num_segments):
-        img = labels_kjq[ranks[i % 3]]
+        rank = ranks[i // 4]  # 0–3 → K, 4–7 → Q, 8–11 → J
         ang = math.radians((i + 0.5) * 360 / num_segments) + current_rad
-        px  = int(temp_center[0] + outer_radius * 0.85 * math.cos(ang))
-        py  = int(temp_center[1] + outer_radius * 0.85 * math.sin(ang))
-        temp_surf.blit(img, img.get_rect(center=(px, py)))
 
-    # Mid ring: gradient background from white to a darker shade
+        rank_radius = outer_radius * 0.85
+        rx = int(temp_center[0] + rank_radius * math.cos(ang))
+        ry = int(temp_center[1] + rank_radius * math.sin(ang))
+        rank_img = labels_kjq[rank]
+        temp_surf.blit(rank_img, rank_img.get_rect(center=(rx, ry)))
+
+    # Mid ring: gradient from white → darker
     inner_grad = mid_radius - int(mid_radius * 0.3)
     for r in range(mid_radius, inner_grad, -1):
         shade = 255 - int((mid_radius - r) / (mid_radius - inner_grad) * 100)
-        gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1], r, (shade, shade, shade))
+        gfxdraw.filled_circle(temp_surf, temp_center[0], temp_center[1], r,
+                              (shade, shade, shade))
 
-    # Draw borders (radial lines) between mid ring segments all the way down to inner circle
+    # Radial lines between mid ring and inner ring
     for i in range(num_segments):
         ang = math.radians(i * 360 / num_segments) + current_rad
         x1  = temp_center[0] + inner_radius * math.cos(ang)
@@ -411,19 +444,19 @@ def draw_wheel(
         y2  = temp_center[1] + mid_radius * math.sin(ang)
         pygame.draw.aaline(temp_surf, GRID, (int(x1), int(y1)), (int(x2), int(y2)))
 
-    # Draw suit icons on top of mid ring
+    # Draw suit icons in the mid ring
     suit_size = int(mid_radius * 0.3)
-    suits = ['Spades', 'Diamond', 'Clubs', 'Hearts']
     for i in range(num_segments):
         ang = math.radians((i + 0.5) * 360 / num_segments) + current_rad
-        px  = int(temp_center[0] + mid_radius * 0.75 * math.cos(ang))
-        py  = int(temp_center[1] + mid_radius * 0.75 * math.sin(ang))
-        img = pygame.transform.smoothscale(
-            labels_suits[suits[i % 4]], (suit_size, suit_size)
+        mx  = int(temp_center[0] + mid_radius * 0.75 * math.cos(ang))
+        my  = int(temp_center[1] + mid_radius * 0.75 * math.sin(ang))
+        suit = suits[i % 4]
+        suit_img = pygame.transform.smoothscale(
+            labels_suits[suit], (suit_size, suit_size)
         )
-        temp_surf.blit(img, img.get_rect(center=(px, py)))
+        temp_surf.blit(suit_img, suit_img.get_rect(center=(mx, my)))
 
-    # Inner circle segments (alternating dark and light gold)
+    # Inner circle segments (alternating dark/light gold)
     DARK_GOLD  = (*GOLD, 255)
     LIGHT_GOLD = (*GOLD, 254)
     for i in range(num_segments):
@@ -435,25 +468,33 @@ def draw_wheel(
             x = temp_center[0] + inner_radius * math.cos(a)
             y = temp_center[1] + inner_radius * math.sin(a)
             pts.append((int(x), int(y)))
-        gfxdraw.filled_polygon(temp_surf, pts, DARK_GOLD if i % 2 == 0 else LIGHT_GOLD)
+        gfxdraw.filled_polygon(
+            temp_surf, pts,
+            DARK_GOLD if i % 2 == 0 else LIGHT_GOLD
+        )
 
-    # Draw ribbon (outer ring's border circle)
+    # Draw ribbon (outermost border circle)
     ribbon_rad   = outer_radius + ribbon_thickness // 2
     ribbon_color = (*RIBBON_COLOR_RGB, RIBBON_ALPHA)
-    gfxdraw.aacircle(temp_surf, temp_center[0], temp_center[1], ribbon_rad, ribbon_color)
-    pygame.draw.circle(temp_surf, ribbon_color, temp_center, ribbon_rad, ribbon_thickness)
+    gfxdraw.aacircle(
+        temp_surf, temp_center[0], temp_center[1],
+        ribbon_rad, ribbon_color
+    )
+    pygame.draw.circle(temp_surf, ribbon_color, temp_center,
+                       ribbon_rad, ribbon_thickness)
 
-    # Draw alternating pointers (dots) and arrows on the ribbon
+    # Dots and arrows on the ribbon
     inner_edge = ribbon_rad - ribbon_thickness // 2
     for i in range(num_segments):
         ang = math.radians(i * 360 / num_segments)
         if i % 2 == 0:
-            # Draw a small circular pointer
             px = int(temp_center[0] + inner_edge * math.cos(ang))
             py = int(temp_center[1] + inner_edge * math.sin(ang))
-            gfxdraw.filled_circle(temp_surf, px, py, ribbon_thickness // 2 + 2, (*GOLD, 255))
+            gfxdraw.filled_circle(
+                temp_surf, px, py,
+                ribbon_thickness // 2 + 2, (*GOLD, 255)
+            )
         else:
-            # Draw a triangular arrow pointing inward
             tip_r = inner_edge - ribbon_arrow_h
             base_r = inner_edge
             tip = (
@@ -468,14 +509,14 @@ def draw_wheel(
             b2 = (int(bx - perp_dx), int(by - perp_dy))
             gfxdraw.filled_polygon(temp_surf, [tip, b1, b2], (*GOLD, 255))
 
-    # Draw static inner arrow at top
+    # Draw the static inner arrow at 12 o'clock
     tip = (temp_center[0], temp_center[1] - inner_radius - inner_arrow_h)
     b1  = (temp_center[0] - inner_arrow_w // 2, temp_center[1] - inner_radius)
     b2  = (temp_center[0] + inner_arrow_w // 2, temp_center[1] - inner_radius)
     gfxdraw.filled_polygon(temp_surf, [tip, b1, b2], (*GOLD, 255))
     gfxdraw.aapolygon(temp_surf, [tip, b1, b2], (*GOLD, 255))
 
-    # Blit the temporary surface (with shadow and everything) onto the main surface
+    # Blit everything onto the main surface
     dest = pygame.Rect(
         wheel_center[0] - temp_center[0],
         wheel_center[1] - temp_center[1],
