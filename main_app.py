@@ -182,7 +182,8 @@ def launch_main_app(user_data):
     try:
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
-        print("Response from RESULT_API (at remaining==5):", data)
+        globals.history_json = data.get('game_results_history', [])
+        #print("Response from RESULT_API (at remaining==5):", globals.history_json)
         server_ts = data.get("server_timestamp", time.time())
     except Exception:
         server_ts = time.time()
@@ -211,6 +212,8 @@ def launch_main_app(user_data):
     # ───── INITIALIZE balance ONCE FROM user_data('points') ─────────────────────
     #     After this, we’ll always use globals.user_data_points and let handle_click() update it.
     globals.user_data_points = user_data.get('points', 0)
+    globals.total_win_today = user_data.get('winning_points', 0)
+    #print(f"Updated initial globals.total_win_today → {globals.total_win_today}")
 
     mapped_list      = []
     waiting_for_blink= False
@@ -310,7 +313,7 @@ def launch_main_app(user_data):
         return remaining, current_server_ts
 
     def draw_withdraw_time_label():
-        label = f"Withdraw @ {globals.Withdraw_time}"
+        label = f""
         fs = int(min(sw, sh) * 0.03)
         lbl_font = pygame.font.SysFont("Arial", fs, bold=True)
         surf = lbl_font.render(label, True, YELLOW_BG)
@@ -352,12 +355,12 @@ def launch_main_app(user_data):
                 resp_data = resp.json()
 
                 # Print entire JSON response each time
-                print("Response from RESULT_API (at remaining==5):", resp_data)
+                #print("Response from RESULT_API (at remaining==5):", resp_data)
 
                 choosen = resp_data.get("choosenindex")
                 if choosen is not None:
                     globals.FORCED_SEGMENT = int(choosen)
-                    print(f"Updated globals.FORCED_SEGMENT → {globals.FORCED_SEGMENT}")
+                    #print(f"Updated globals.FORCED_SEGMENT → {globals.FORCED_SEGMENT}")
                 waiting_for_blink = True
             except Exception as e:
                 print("Error fetching forced segment:", e)
@@ -366,6 +369,16 @@ def launch_main_app(user_data):
         if remaining <= 0 and not spinning:
             spins    = random.randint(3, 6)
             target_i = globals.FORCED_SEGMENT
+            win_value = int(resp_data.get("chooseindexpoint", 0))
+
+            if win_value is not None:
+                #print(f"Updated before globals.total_win_today → {globals.total_win_today}")
+                def delayed_update():
+                    time.sleep(5)
+                    globals.total_win_today = int(globals.total_win_today) + win_value * 10
+
+                threading.Thread(target=delayed_update).start()
+                #print(f"Updated after globals.total_win_today → {globals.total_win_today}")
 
             desired_final_ang = compute_final_angle_for_segment(target_i, num_segments)
             delta_ang = (desired_final_ang - spin_base_ang) % 360.0
@@ -374,12 +387,7 @@ def launch_main_app(user_data):
             spinning    = True
             result_index = None
 
-            print(
-                f"*** Spinning wheel → stopping on segment #{target_i}; "
-                f"desired_final_ang={desired_final_ang:.1f}°, "
-                f"spin_base_ang={spin_base_ang:.1f}°, delta={delta_ang:.1f}°, "
-                f"total_rot={total_rot:.1f}° ***"
-            )
+            #print(f"*** Spinning wheel → stopping on segment #{target_i}; "f"desired_final_ang={desired_final_ang:.1f}°, "f"spin_base_ang={spin_base_ang:.1f}°, delta={delta_ang:.1f}°, " f"total_rot={total_rot:.1f}° ***")
 
             # Schedule next cycle immediately
             cycle_start_ts = cycle_start_ts + CYCLE_DURATION
@@ -413,7 +421,7 @@ def launch_main_app(user_data):
                         if isinstance(bet_amt, (int, float)):
                             # Subtract the bet amount from globals.user_data_points
                             globals.user_data_points = max(0, globals.user_data_points - bet_amt)
-                            print(f"Bet placed: {bet_amt}, New balance = {globals.user_data_points}")
+                            #print(f"Bet placed: {bet_amt}, New balance = {globals.user_data_points}")
                 else:
                     if back_btn.collidepoint(ev.pos):
                         show_mode = 'wheel'
@@ -427,6 +435,7 @@ def launch_main_app(user_data):
 
             if not still_spinning:
                 spinning = False
+                globals.history_json = resp_data.get('game_results_history', [])
                 spin_base_ang = current_ang
                 result_index = globals.FORCED_SEGMENT
                 if waiting_for_blink:
@@ -486,10 +495,10 @@ def launch_main_app(user_data):
                              (mx_c - off, my_c), (mx_c + off, my_c), 3)
 
         # Player name & balance
+        # Player name & balance
         player_name = f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}"
         player_surf = font.render(player_name, True, YELLOW_BG)
         player_rect = player_surf.get_rect()
-        screen.blit(player_surf, (20, 20))
 
         # ─── BALANCE DISPLAY ─────────────────────────────────────────────────────────
         balance_text = f"Balance : {globals.user_data_points}"
@@ -504,7 +513,7 @@ def launch_main_app(user_data):
         player_rect.centery = v_center
         balance_border.centery = v_center
         balance_rect.left = balance_border.left + (bp_x // 2)
-        balance_rect.top  = balance_border.top  + (bp_y // 2)
+        balance_rect.top = balance_border.top + (bp_y // 2)
         gap = 10
         player_rect.right = balance_border.left - gap
 
@@ -512,13 +521,14 @@ def launch_main_app(user_data):
         pygame.draw.rect(screen, YELLOW_BG, balance_border, 2)
         screen.blit(balance_surf, balance_rect)
 
+
         # Current date/time & wins
         current_clock = datetime.now().strftime('%H:%M:%S')
         current_date  = datetime.now().strftime('%d-%m-%Y')
         info_txt = (
             f"{current_date}  "
             f"{current_clock}   "
-            f"Win:{user_data.get('winning_points',0)}"
+            f"Win:{globals.total_win_today}"
         )
         text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
         screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
