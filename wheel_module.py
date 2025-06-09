@@ -20,7 +20,7 @@ new_withdraw_time = None
 
 def print_withdraw_time():
     # This will only run when you explicitly call it, so by then main_app.py has set it
-    #print("Withdraw_time (from wheel_module):", globals.Withdraw_time)
+    print("Withdraw_time (from wheel_module):", globals.Withdraw_time)
     new_withdraw_time = globals.Withdraw_time
 
 # --------------------------------------------------
@@ -82,7 +82,7 @@ except ImportError:
 def print_json_silent(data_dict, printer_name=None):
     ticket_block = data_dict.get("data", {}).get("ticket", {})
     if not ticket_block:
-        #print("[Printer][Error] No 'ticket' block found in data_dict.")
+        print("[Printer][Error] No 'ticket' block found in data_dict.")
         return
 
     ticket_id       = ticket_block.get("id", "")
@@ -98,18 +98,18 @@ def print_json_silent(data_dict, printer_name=None):
     print_date = now.strftime("%Y-%m-%d")
     print_time = now.strftime("%H:%M:%S")
 
-    #print(f"[Printer][Info] Preparing ticket data:")
-    #print(f"  Ticket ID     : {ticket_id}")
-    #print(f"  Serial Number : {serial_number}")
-    #print(f"  Terminal Name : {user_id}")
-    #print(f"  Amount        : {amount}")
-    #print(f"  Withdraw Time : {withdraw_time}")
-    #print(f"  Print Date    : {print_date}")
-    #print(f"  Print Time    : {print_time}")
+    print(f"[Printer][Info] Preparing ticket data:")
+    print(f"  Ticket ID     : {ticket_id}")
+    print(f"  Serial Number : {serial_number}")
+    print(f"  Terminal Name : {user_id}")
+    print(f"  Amount        : {amount}")
+    print(f"  Withdraw Time : {withdraw_time}")
+    print(f"  Print Date    : {print_date}")
+    print(f"  Print Time    : {print_time}")
 
     base_pdf_name = f"ticket_{serial_number}"
     pdf_filename = base_pdf_name + ".pdf"
-    #print(f"[Printer][Info] Generating PDF: {pdf_filename}")
+    print(f"[Printer][Info] Generating PDF: {pdf_filename}")
 
     c = canvas.Canvas(pdf_filename, pagesize=letter)
     width, height = letter
@@ -137,13 +137,13 @@ def print_json_silent(data_dict, printer_name=None):
 
     c.setFont("Helvetica", 12)
     for line in lines:
-        #print(f"[Printer][Info] Adding to PDF: {line}")
+        print(f"[Printer][Info] Adding to PDF: {line}")
         c.drawString(50, y, line)
         y -= 20
 
     if serial_number:
         try:
-            #print(f"[Printer][Info] Generating barcode for: {serial_number}")
+            print(f"[Printer][Info] Generating barcode for: {serial_number}")
             barcode_obj = code128.Code128(
                 serial_number,
                 barHeight=20 * mm,
@@ -155,30 +155,30 @@ def print_json_silent(data_dict, printer_name=None):
             y -= (20 * mm + 30)
 
             c.setFont("Helvetica", 10)
-            #print(f"[Printer][Info] Embedded barcode and serial text.")
+            print(f"[Printer][Info] Embedded barcode and serial text.")
         except Exception as e:
-            #print(f"[Printer][Warning] Could not generate/embed barcode: {e}")
+            print(f"[Printer][Warning] Could not generate/embed barcode: {e}")
             y -= 30
     else:
-        #print(f"[Printer][Warning] No serial number to generate barcode.")
+        print(f"[Printer][Warning] No serial number to generate barcode.")
         y -= 30
 
     footer_text = "Not For Sale"
-    #print(f"[Printer][Info] Adding footer to PDF: {footer_text}")
+    print(f"[Printer][Info] Adding footer to PDF: {footer_text}")
     c.setFont("Helvetica-Bold", 12)
     c.drawCentredString(width / 2, y, footer_text)
 
     c.showPage()
     c.save()
-    #print(f"[Printer][Info] PDF saved: {pdf_filename}")
+    print(f"[Printer][Info] PDF saved: {pdf_filename}")
 
     system_name = platform.system()
-    #print(f"[Printer] Detected OS: {system_name}")
+    print(f"[Printer] Detected OS: {system_name}")
 
     if system_name == "Windows":
         if win32api is None or win32print is None:
-            #print("[Printer][Error] On Windows, silent printing requires 'pywin32'.")
-            #print("[Printer][Error] Install it via: pip install pywin32")
+            print("[Printer][Error] On Windows, silent printing requires 'pywin32'.")
+            print("[Printer][Error] Install it via: pip install pywin32")
             return
 
         try:
@@ -187,14 +187,14 @@ def print_json_silent(data_dict, printer_name=None):
             else:
                 target_printer = win32print.GetDefaultPrinter()
         except Exception as e:
-            #print(f"[Printer][Error] Could not retrieve default printer: {e}")
+            print(f"[Printer][Error] Could not retrieve default printer: {e}")
             return
 
         if not target_printer:
-            #print("[Printer][Error] No default printer found on Windows.")
+            print("[Printer][Error] No default printer found on Windows.")
             return
 
-        #print(f"[Printer] Using Windows printer: '{target_printer}'")
+        print(f"[Printer] Using Windows printer: '{target_printer}'")
 
         try:
             win32api.ShellExecute(
@@ -205,15 +205,15 @@ def print_json_silent(data_dict, printer_name=None):
                 ".",
                 0
             )
-            #print(f"[Printer][Info] ShellExecute 'printto' issued for '{pdf_filename}'.")
+            print(f"[Printer][Info] ShellExecute 'printto' issued for '{pdf_filename}'.")
         except Exception as e:
             print(f"[Printer][Error] Failed to ShellExecute print: {e}")
 
     elif system_name in ("Linux", "Darwin"):
         from shutil import which
         if which("lpr") is None:
-            #print("[Printer][Error] 'lpr' command not found.")
-            #print("[Printer][Error] Install CUPS / lpr utilities.")
+            print("[Printer][Error] 'lpr' command not found.")
+            print("[Printer][Error] Install CUPS / lpr utilities.")
             return
 
         cmd = ["lpr", pdf_filename]
@@ -221,14 +221,14 @@ def print_json_silent(data_dict, printer_name=None):
             cmd = ["lpr", "-P", printer_name, pdf_filename]
 
         target = printer_name or "<default>"
-        #print(f"[Printer] Sending PDF to {target} (via 'lpr').")
+        print(f"[Printer] Sending PDF to {target} (via 'lpr').")
 
         try:
             result = subprocess.run(cmd, check=True, capture_output=True)
-            #print(f"[Printer][Info] PDF sent to printer '{target}' successfully (exit code {result.returncode}).")
+            print(f"[Printer][Info] PDF sent to printer '{target}' successfully (exit code {result.returncode}).")
         except subprocess.CalledProcessError as e:
             stderr_out = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-            #print(f"[Printer][Error] lpr failed (code {e.returncode}).")
+            print(f"[Printer][Error] lpr failed (code {e.returncode}).")
             if stderr_out:
                 print(f"[Printer][Error] lpr stderr: {stderr_out.strip()}")
         except Exception as exc:
@@ -1213,18 +1213,18 @@ def handle_click(mouse_pos):
             "Withdraw_time": globals.Withdraw_time,
             "User_id": globals.User_id
         }
-        #print("Sending payload:", json.dumps(payload, indent=2))
+        print("Sending payload:", json.dumps(payload, indent=2))
         globals.user_data_points -= total_bet_amount
         resp = requests.post(
             "https://spintofortune.in/api/app_place_bet.php",
             json=payload,
             headers={"Content-Type": "application/json"}
         )
-        #print("Status:", resp.status_code)
-        #print("Raw response text:", resp.text)
+        print("Status:", resp.status_code)
+        print("Raw response text:", resp.text)
         resp.raise_for_status()
         data = resp.json()
-        #print(json.dumps(data, indent=2))
+        print(json.dumps(data, indent=2))
         print_json_silent(data)
 
         # --- clear all placed bets ---
