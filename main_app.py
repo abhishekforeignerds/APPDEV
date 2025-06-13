@@ -114,6 +114,9 @@ def launch_main_app(user_data):
     screen = pygame.display.set_mode((sw, sh))
     pygame.display.set_caption("Main App - Spinning Wheel and History")
 
+    # Flag to ensure RESULT_API is called only once per cycle
+    result_api_called = False
+
     # ───── COLORS ─────────────────────────────────────────────────────────────────
     BLACK      = (0, 0, 0)
     WHITE      = (255, 255, 255)
@@ -183,7 +186,7 @@ def launch_main_app(user_data):
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
         globals.history_json = data.get('game_results_history', [])
-        print("Response from RESULT_API (at remaining==5):", globals.history_json)
+        print("Response from:", globals.history_json)
         server_ts = data.get("server_timestamp", time.time())
     except Exception:
         server_ts = time.time()
@@ -200,7 +203,7 @@ def launch_main_app(user_data):
 
     next_action_ts = candidate.timestamp()
 
-    # ───── SET CYCLE START (120s countdown) ──────────────────────────────────────
+    # ───── SET CYCLE START (120s countdown) ─────────────────────────────────────
     cycle_start_ts = next_action_ts - CYCLE_DURATION
     save_last_cycle_timestamp(cycle_start_ts)
 
@@ -252,6 +255,7 @@ def launch_main_app(user_data):
                 data = resp.json()
                 globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
+                # print("Response from DASHBOARD API mapped_list:", mapped_list)
 
                 srv_now = data.get('server_timestamp')
                 if srv_now:
@@ -287,6 +291,8 @@ def launch_main_app(user_data):
 
                     # Reset for the next‐spin blink logic
                     waiting_for_blink = False
+                    # Also reset RESULT_API flag for new cycle
+                    result_api_called = False
 
             except Exception:
                 pass
@@ -340,7 +346,7 @@ def launch_main_app(user_data):
         remaining, current_server_ts = compute_countdown()
 
         # ─── Fetch forced segment exactly when remaining == 5 ───
-        if remaining == 5:
+        if remaining == 5 and not result_api_called:
             try:
                 payload = {
                     # Numeric timestamp
@@ -362,6 +368,7 @@ def launch_main_app(user_data):
                     globals.FORCED_SEGMENT = int(choosen)
                     print(f"Updated globals.FORCED_SEGMENT → {globals.FORCED_SEGMENT}")
                 waiting_for_blink = True
+                result_api_called = True
             except Exception as e:
                 print("Error fetching forced segment:", e)
 
@@ -401,6 +408,8 @@ def launch_main_app(user_data):
             globals.Withdraw_time = format_withdraw_time(withdraw_ts)
             wheel_module.print_withdraw_time()
             save_last_cycle_timestamp(cycle_start_ts)
+            # Reset flag for next cycle
+            result_api_called = False
 
         # ─── Handle events ───
         for ev in pygame.event.get():
@@ -623,11 +632,13 @@ def launch_main_app(user_data):
 
         # “History” screen
         if show_mode == 'history':
-            cols = ["card_type", "ticket_serial", "bet_amount", "claim_point", "unclaim_point", "status", "action"]
+            cols = ["card_type", "ticket_serial", "bet_amount", "win_point", "claim_point", "unclaim_point", "status", "action"]
             draw_table(
                 screen, cols, mapped_list, "History",
                 pygame.font.SysFont("Arial", 32, bold=True),
-                small_font, sw
+                small_font, sw,
+                labels_kjq=labels_kjq,
+                labels_suits=labels_suits
             )
             pygame.draw.rect(screen, ORANGE, back_btn)
             screen.blit(
@@ -636,23 +647,93 @@ def launch_main_app(user_data):
             )
 
         # “Summary” screen
-        elif show_mode == 'summary':
-            total_sale = sum(float(i.get('bet_amount', 0)) for i in mapped_list)
-            total_win  = sum(float(i.get('claim_point', 0)) for i in mapped_list)
-            total_comm = total_sale * 0.03
-            net = total_sale - total_win - total_comm
-            row = {
-                k.lower(): round(v, 2)
-                for k, v in zip(
-                    ["Total Sale", "Total Win", "Total Commission", "Net Point"],
-                    [total_sale, total_win, total_comm, net]
-                )
-            }
-            cols2 = ["Total Sale", "Total Win", "Total Commission", "Net Point"]
+        elif show_mode == 'simple':
+            # Group sums by Marker Card
+            from collections import defaultdict
+
+            def get_marker_and_values(row):
+                # Determine cp_val, up_val
+                cp_raw = row.get('claim_point')
+                up_raw = row.get('unclaim_point')
+                try:
+                    cp_val = float(cp_raw) if cp_raw not in (None, '', 'NA') else None
+                except:
+                    cp_val = None
+                try:
+                    up_val = float(up_raw) if up_raw not in (None, '', 'NA') else None
+                except:
+                    up_val = None
+                # Determine status
+                if cp_val is None and up_val is None:
+                    status = "Bet Placed"
+                elif cp_val == 0 and up_val == 0:
+                    status = "Loose"
+                elif (cp_val is not None and cp_val > 0) or (up_val is not None and up_val > 0):
+                    status = "WIN"
+                else:
+                    status = "Loose"
+                # Determine marker key
+                if status == "Bet Placed":
+                    marker = None  # represent NA
+                else:
+                    gr = row.get('game_result', {})
+                    if gr.get('winning_number') is not None:
+                        marker = gr.get('winning_number')
+                    elif gr.get('lose_number') is not None:
+                        marker = gr.get('lose_number')
+                    else:
+                        marker = None
+                # Extract numeric fields to sum
+                try:
+                    bet = float(row.get('bet_amount', 0) or 0)
+                except:
+                    bet = 0.0
+                try:
+                    claim = float(row.get('claim_point', 0) or 0)
+                except:
+                    claim = 0.0
+                try:
+                    unclaim = float(row.get('unclaim_point', 0) or 0)
+                except:
+                    unclaim = 0.0
+                return marker, bet, claim, unclaim
+
+            sums = defaultdict(lambda: {'bet': 0.0, 'claim': 0.0, 'unclaim': 0.0})
+            for row in mapped_list:
+                marker, bet, claim, unclaim = get_marker_and_values(row)
+                sums[marker]['bet'] += bet
+                sums[marker]['claim'] += claim
+                sums[marker]['unclaim'] += unclaim
+
+            # Build summary rows: one per marker key
+            summary_rows = []
+            # Sort keys: put None (NA) first, then numeric ascending
+            keys = list(sums.keys())
+            def sort_key(k):
+                if k is None:
+                    return -1
+                return int(k) if isinstance(k, (int, float, str)) and str(k).isdigit() else float('inf')
+            keys_sorted = sorted(keys, key=sort_key)
+            for marker in keys_sorted:
+                vals = sums[marker]
+                if marker is None:
+                    marker_str = "NA"
+                else:
+                    marker_str = str(int(marker) if isinstance(marker, float) and marker.is_integer() else str(marker))
+                summary_rows.append({
+                    'card_type': marker_str,
+                    'bet_amount': f"{vals['bet']:.2f}",
+                    'claim_point': f"{vals['claim']:.2f}",
+                    'unclaim_point': f"{vals['unclaim']:.2f}"
+                })
+
+            cols3 = ["card_type", "bet_amount", "claim_point", "unclaim_point"]
             draw_table(
-                screen, cols2, [row], "Account",
+                screen, cols3, summary_rows, "Card History",
                 pygame.font.SysFont("Arial", 32, bold=True),
-                small_font, sw
+                small_font, sw,
+                labels_kjq=None,  # so draw_table will render the text in 'card_type'
+                labels_suits=None
             )
             pygame.draw.rect(screen, ORANGE, back_btn)
             screen.blit(
@@ -666,7 +747,9 @@ def launch_main_app(user_data):
             draw_table(
                 screen, cols3, mapped_list, "Card History",
                 pygame.font.SysFont("Arial", 32, bold=True),
-                small_font, sw
+                small_font, sw,
+                labels_kjq=labels_kjq,
+                labels_suits=labels_suits
             )
             pygame.draw.rect(screen, ORANGE, back_btn)
             screen.blit(
