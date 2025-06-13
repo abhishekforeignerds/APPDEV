@@ -647,7 +647,7 @@ def launch_main_app(user_data):
             )
 
         # “Summary” screen
-        elif show_mode == 'simple':
+        elif show_mode == 'summary':
             # Group sums by Marker Card
             from collections import defaultdict
 
