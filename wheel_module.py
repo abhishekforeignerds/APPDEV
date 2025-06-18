@@ -1192,7 +1192,9 @@ def draw_left_table(
 # --------------------------------------
 # Click-handling function
 # --------------------------------------
-def handle_click(mouse_pos):
+def handle_click(mouse_pos, compute_countdown_fn):
+    remaining, _ = compute_countdown_fn()
+    print('remaining', remaining)
     """
     Must be called in your main loop on MOUSEBUTTONDOWN.
     1) Click a tray chip → select that chip.
@@ -1206,15 +1208,24 @@ def handle_click(mouse_pos):
     global selected_chip, placed_chips, last_placed_chips
 
     # — Bet button —
+    # … inside your event loop, where you handle the bet button click …
+
     if bet_button_rect and bet_button_rect.collidepoint(mouse_pos):
+        if remaining < 5:
+            app_globals.message      = "Betting Time is Over. Wait for wheel to stop."
+            app_globals.message_time = pygame.time.get_ticks()
+            return
         total_bet_amount = sum(amt for (_, _), amt in placed_chips.items())
         payload = {
             "bets": {f"{r}_{c}": amt for (r, c), amt in placed_chips.items()},
             "Withdraw_time": app_globals.Withdraw_time,
-            "User_id": app_globals.User_id
+            "User_id":       app_globals.User_id
         }
         print("Sending payload:", json.dumps(payload, indent=2))
+
+        # optimistically deduct points
         app_globals.user_data_points -= total_bet_amount
+
         resp = requests.post(
             "https://spintofortune.in/api/app_place_bet.php",
             json=payload,
@@ -1223,6 +1234,7 @@ def handle_click(mouse_pos):
         print("Status:", resp.status_code)
         print("Raw response text:", resp.text)
         resp.raise_for_status()
+
         data = resp.json()
         print(json.dumps(data, indent=2))
         print_json_silent(data)
@@ -1231,7 +1243,17 @@ def handle_click(mouse_pos):
         last_placed_chips = placed_chips.copy()
         placed_chips.clear()
         selected_chip = None
-        return
+
+        # --- NEW: show success message ---
+        if data.get('status') == 'success':
+            payload = data.get('data', {})           # the nested object
+            ticket_serial = payload.get('serial')  
+            app_globals.message = f"Bet was placed successfully: Ticket Id - {ticket_serial}"
+            # record when we showed it
+            app_globals.message_time = pygame.time.get_ticks()
+
+            return
+
 
     # 2) Tray‐chip selection
     for idx, rect in enumerate(chip_rects):
@@ -1264,18 +1286,30 @@ def handle_click(mouse_pos):
 
     # — Clear Bet button —
     if clear_button_rect and clear_button_rect.collidepoint(mouse_pos):
+        if remaining < 5:
+            app_globals.message      = "Betting Time is Over. Wait for wheel to stop."
+            app_globals.message_time = pygame.time.get_ticks()
+            return
         placed_chips.clear()
         selected_chip = None
         return
 
     # — Double Bet button —
     if double_button_rect and double_button_rect.collidepoint(mouse_pos):
+        if remaining < 5:
+            app_globals.message      = "Betting Time is Over. Wait for wheel to stop."
+            app_globals.message_time = pygame.time.get_ticks()
+            return
         for key in list(placed_chips):
             placed_chips[key] *= 2
         return
 
     # — Repeat Bet button —
     if repeat_button_rect and repeat_button_rect.collidepoint(mouse_pos):
+        if remaining < 5:
+            app_globals.message      = "Betting Time is Over. Wait for wheel to stop."
+            app_globals.message_time = pygame.time.get_ticks()
+            return
         placed_chips = last_placed_chips.copy()
         return
 

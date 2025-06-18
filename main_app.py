@@ -27,6 +27,46 @@ RED_BG      = (200, 0, 0)
 BLUE_RIBBON = (0, 0, 200)
 GREEN       = (0, 255, 0)
 
+
+def draw_text_centered(surface, text, font, y, color=(255,255,255)):
+    """
+    Renders `text` with `font` onto `surface`, centered horizontally at vertical position `y`.
+    """
+    # Render the text to a new surface
+    text_surf = font.render(text, True, color)
+    # Grab its rect and set the midtop
+    text_rect = text_surf.get_rect(midtop=(surface.get_width() // 2, y))
+    # Blit it
+    surface.blit(text_surf, text_rect)
+
+
+def draw_message_box(surface, text, font, y=80, 
+                     bg_color=(0, 102, 204),  # a nice medium blue
+                     text_color=(255, 255, 255),
+                     padding=8,
+                     border_radius=6):
+    """
+    Draws `text` centered horizontally at vertical position `y`,
+    on a blue background box with white text.
+    """
+    # Render text surface
+    text_surf = font.render(text, True, text_color)
+    text_rect = text_surf.get_rect(midtop=(surface.get_width() // 2, y))
+    
+    # Expand to a background rect
+    bg_rect = pygame.Rect(
+        text_rect.left - padding,
+        text_rect.top - padding,
+        text_rect.width + padding * 2,
+        text_rect.height + padding * 2
+    )
+    
+    # Draw background and then text
+    pygame.draw.rect(surface, bg_color, bg_rect, border_radius=border_radius)
+    surface.blit(text_surf, text_rect)
+
+
+
 def compute_final_angle_for_segment(target_index, num_segments=None):
     """
     Returns a fixed “final angle” for each segment index, using explicit if/elif statements.
@@ -431,7 +471,7 @@ def launch_main_app(user_data):
                         show_mode = 'simple'
                     else:
                         # ─── Player clicked on the wheel to place a bet ───
-                        bet_amt = handle_click(ev.pos)
+                        bet_amt = handle_click(ev.pos, compute_countdown)
                         if isinstance(bet_amt, (int, float)):
                             # Subtract the bet amount from globals.user_data_points
                             app_globals.user_data_points = max(0, app_globals.user_data_points - bet_amt)
@@ -617,6 +657,14 @@ def launch_main_app(user_data):
                                center[1] - txt_surf.get_height() // 2))
 
         # ─── Draw “Withdraw @ HH:MM:00” ───
+        if hasattr(app_globals, 'message') and app_globals.message:
+            now = pygame.time.get_ticks()
+            if app_globals.message and now - app_globals.message_time < 3000:
+                draw_message_box(screen, app_globals.message, font, y=80)
+            elif now - app_globals.message_time >= 3000:
+                app_globals.message = ""
+        
+        
         draw_withdraw_time_label()
 
         # ─── Draw nav buttons ───

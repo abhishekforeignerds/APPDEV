@@ -6,3 +6,6 @@ total_win_today = 0
 history_json = {}
 restrict = False
 message = ""
+message_time=""
+base_server_ts = None
+base_local_ts  = None
