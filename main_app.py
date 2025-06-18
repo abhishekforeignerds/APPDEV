@@ -16,7 +16,7 @@ from wheel_module import (
     draw_left_table,
     handle_click
 )
-from table_module import draw_table
+from table_module import draw_table, handle_claim_click
 
 LAST_SPIN_FILE = "last_spin.json"
 CYCLE_DURATION = 120      # seconds (2 minutes)
@@ -632,7 +632,11 @@ def launch_main_app(user_data):
 
         # “History” screen
         if show_mode == 'history':
-            cols = ["card_type", "ticket_serial", "bet_amount", "win_point", "claim_point", "unclaim_point", "status", "action"]
+            cols = [
+                "card_type", "ticket_serial", "bet_amount",
+                "win_point", "claim_point", "unclaim_point",
+                "status", "action"
+            ]
             draw_table(
                 screen, cols, mapped_list, "History",
                 pygame.font.SysFont("Arial", 32, bold=True),
@@ -640,11 +644,15 @@ def launch_main_app(user_data):
                 labels_kjq=labels_kjq,
                 labels_suits=labels_suits
             )
+            # now that draw_table has set up draw_table.buttons:
+            handle_claim_click(ev.pos)
+
             pygame.draw.rect(screen, ORANGE, back_btn)
             screen.blit(
                 pygame.font.SysFont("Arial", 32, bold=True).render("Close", True, BLACK),
                 (back_btn.x + 20, back_btn.y + 5)
             )
+
 
         # “Summary” screen
         elif show_mode == 'summary':
