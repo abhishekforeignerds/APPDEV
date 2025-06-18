@@ -1,6 +1,7 @@
 import pygame
 import requests
 import json
+import app_globals as G   
 
 def draw_table(surf, cols, rows, title,
                font_titles, font_cells, sw,
@@ -186,6 +187,8 @@ def draw_table(surf, cols, rows, title,
         pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
 
 
+_claimed_tickets = set()
+
 def handle_claim_click(pos):
     """Call from your main loop on left‐click to fire the Claim API."""
     if not hasattr(draw_table, "buttons"):
@@ -194,13 +197,15 @@ def handle_claim_click(pos):
     for btn in draw_table.buttons:
         if btn['rect'].collidepoint(pos):
             ts = btn['ticket_serial']
-            payload = {"ticket_serial": ts}
 
-            # build the request manually so we can inspect it
+            # 1) LOCAL GUARD: if we already claimed this ticket, stop here
+            if ts in _claimed_tickets:
+                print(f"[DEBUG] Ticket {ts} already claimed locally – skipping.")
+                return
+
+            # 2) BUILD & SEND
             url     = "https://spintofortune.in/api/app_claim_point.php"
             payload = {"ticket_serial": ts}
-
-            # Manually serialize and set headers so we know exactly what's sent
             payload_json = json.dumps(payload)
             headers = {
                 "Content-Type":   "application/json; charset=UTF-8",
@@ -208,5 +213,24 @@ def handle_claim_click(pos):
             }
 
             resp = requests.post(url, data=payload_json, headers=headers)
-            print(f"[DEBUG] HTTP {resp.status_code}: {resp.text!r}")
+            # if the server chokes, this will raise an HTTPError
+            resp.raise_for_status()
 
+            data = resp.json()
+            status = data.get('status')
+            if status == 'already_claimed':
+                # server‑side guard
+                print(f"[DEBUG] Server says ticket {ts} already claimed.")
+                _claimed_tickets.add(ts)
+                return
+
+            if status != 'success':
+                print("Claim failed:", data.get('message'))
+                return
+
+            # 3) SUCCESS → update globals, mark locally claimed
+            added = data.get('added_points', 0)
+            G.user_data_points += added
+            _claimed_tickets.add(ts)
+
+            print(f"[DEBUG] HTTP {resp.status_code}: {resp.text!r}")

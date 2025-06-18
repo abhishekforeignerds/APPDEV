@@ -7,7 +7,7 @@ import json
 import requests
 import os
 from datetime import datetime, timedelta
-import globals
+import app_globals
 
 import wheel_module
 from wheel_module import (
@@ -185,8 +185,8 @@ def launch_main_app(user_data):
     try:
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
-        globals.history_json = data.get('game_results_history', [])
-        print("Response from:", globals.history_json)
+        app_globals.history_json = data.get('game_results_history', [])
+        print("Response from:", app_globals.history_json)
         server_ts = data.get("server_timestamp", time.time())
     except Exception:
         server_ts = time.time()
@@ -209,14 +209,14 @@ def launch_main_app(user_data):
 
     # ───── IMMEDIATELY STORE the raw numeric timestamp for withdraw ─────────────
     withdraw_ts = next_action_ts
-    globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+    app_globals.Withdraw_time = format_withdraw_time(withdraw_ts)
     wheel_module.print_withdraw_time()
 
     # ───── INITIALIZE balance ONCE FROM user_data('points') ─────────────────────
     #     After this, we’ll always use globals.user_data_points and let handle_click() update it.
-    globals.user_data_points = user_data.get('points', 0)
-    globals.total_win_today = user_data.get('winning_points', 0)
-    print(f"Updated initial globals.total_win_today → {globals.total_win_today}")
+    app_globals.user_data_points = user_data.get('points', 0)
+    app_globals.total_win_today = user_data.get('winning_points', 0)
+    print(f"Updated initial globals.total_win_today → {app_globals.total_win_today}")
 
     mapped_list      = []
     waiting_for_blink= False
@@ -239,7 +239,7 @@ def launch_main_app(user_data):
         next_action_ts = cycle_start_ts + CYCLE_DURATION
         withdraw_ts     = next_action_ts
 
-        globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+        app_globals.Withdraw_time = format_withdraw_time(withdraw_ts)
         wheel_module.print_withdraw_time()
         save_last_cycle_timestamp(cycle_start_ts)
 
@@ -253,7 +253,7 @@ def launch_main_app(user_data):
             try:
                 resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
                 data = resp.json()
-                globals.User_id = str(user_data['id'])
+                app_globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
                 # print("Response from DASHBOARD API mapped_list:", mapped_list)
 
@@ -276,7 +276,7 @@ def launch_main_app(user_data):
                     next_action_ts = cycle_start_ts + CYCLE_DURATION
                     withdraw_ts     = next_action_ts
 
-                    globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+                    app_globals.Withdraw_time = format_withdraw_time(withdraw_ts)
                     wheel_module.print_withdraw_time()
                     save_last_cycle_timestamp(cycle_start_ts)
 
@@ -285,7 +285,7 @@ def launch_main_app(user_data):
                     next_action_ts = cycle_start_ts + CYCLE_DURATION
                     withdraw_ts    = next_action_ts
 
-                    globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+                    app_globals.Withdraw_time = format_withdraw_time(withdraw_ts)
                     wheel_module.print_withdraw_time()
                     save_last_cycle_timestamp(cycle_start_ts)
 
@@ -365,8 +365,8 @@ def launch_main_app(user_data):
 
                 choosen = resp_data.get("choosenindex")
                 if choosen is not None:
-                    globals.FORCED_SEGMENT = int(choosen)
-                    print(f"Updated globals.FORCED_SEGMENT → {globals.FORCED_SEGMENT}")
+                    app_globals.FORCED_SEGMENT = int(choosen)
+                    print(f"Updated globals.FORCED_SEGMENT → {app_globals.FORCED_SEGMENT}")
                 waiting_for_blink = True
                 result_api_called = True
             except Exception as e:
@@ -375,17 +375,17 @@ def launch_main_app(user_data):
         # ─── When countdown hits 0, schedule forced spin ───
         if remaining <= 0 and not spinning:
             spins    = random.randint(3, 6)
-            target_i = globals.FORCED_SEGMENT
+            target_i = app_globals.FORCED_SEGMENT
             win_value = int(resp_data.get("chooseindexpoint", 0))
 
             if win_value is not None:
-                print(f"Updated before globals.total_win_today → {globals.total_win_today}")
+                print(f"Updated before globals.total_win_today → {app_globals.total_win_today}")
                 def delayed_update():
                     time.sleep(5)
-                    globals.total_win_today = int(globals.total_win_today) + win_value * 10
+                    app_globals.total_win_today = int(app_globals.total_win_today) + win_value * 10
 
                 threading.Thread(target=delayed_update).start()
-                print(f"Updated after globals.total_win_today → {globals.total_win_today}")
+                print(f"Updated after globals.total_win_today → {app_globals.total_win_today}")
 
             desired_final_ang = compute_final_angle_for_segment(target_i, num_segments)
             delta_ang = (desired_final_ang - spin_base_ang) % 360.0
@@ -405,7 +405,7 @@ def launch_main_app(user_data):
             cycle_start_ts = cycle_start_ts + CYCLE_DURATION
             next_action_ts = cycle_start_ts + CYCLE_DURATION
             withdraw_ts    = next_action_ts
-            globals.Withdraw_time = format_withdraw_time(withdraw_ts)
+            app_globals.Withdraw_time = format_withdraw_time(withdraw_ts)
             wheel_module.print_withdraw_time()
             save_last_cycle_timestamp(cycle_start_ts)
             # Reset flag for next cycle
@@ -434,8 +434,8 @@ def launch_main_app(user_data):
                         bet_amt = handle_click(ev.pos)
                         if isinstance(bet_amt, (int, float)):
                             # Subtract the bet amount from globals.user_data_points
-                            globals.user_data_points = max(0, globals.user_data_points - bet_amt)
-                            print(f"Bet placed: {bet_amt}, New balance = {globals.user_data_points}")
+                            app_globals.user_data_points = max(0, app_globals.user_data_points - bet_amt)
+                            print(f"Bet placed: {bet_amt}, New balance = {app_globals.user_data_points}")
                 else:
                     if back_btn.collidepoint(ev.pos):
                         show_mode = 'wheel'
@@ -449,9 +449,9 @@ def launch_main_app(user_data):
 
             if not still_spinning:
                 spinning = False
-                globals.history_json = resp_data.get('game_results_history', [])
+                app_globals.history_json = resp_data.get('game_results_history', [])
                 spin_base_ang = current_ang
-                result_index = globals.FORCED_SEGMENT
+                result_index = app_globals.FORCED_SEGMENT
                 if waiting_for_blink:
                     blink_mode = True
                     blink_start_time = time.time()
@@ -515,7 +515,7 @@ def launch_main_app(user_data):
         player_rect = player_surf.get_rect()
 
         # ─── BALANCE DISPLAY ─────────────────────────────────────────────────────────
-        balance_text = f"Balance : {globals.user_data_points}"
+        balance_text = f"Balance : {app_globals.user_data_points}"
         balance_surf = font.render(balance_text, True, YELLOW_BG)
         balance_rect = balance_surf.get_rect()
         spacing = 10
@@ -542,7 +542,7 @@ def launch_main_app(user_data):
         info_txt = (
             f"{current_date}  "
             f"{current_clock}   "
-            f"Win:{globals.total_win_today}"
+            f"Win:{app_globals.total_win_today}"
         )
         text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
         screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
@@ -556,7 +556,7 @@ def launch_main_app(user_data):
                 blink_mode = False
                 highlight_on = False
 
-            blink_cell = segment_to_cell(globals.FORCED_SEGMENT)
+            blink_cell = segment_to_cell(app_globals.FORCED_SEGMENT)
             draw_left_table(
                 screen, current_server_ts, labels_kjq, labels_suits,
                 x0=50, y0=100 + margin_top,
@@ -589,7 +589,7 @@ def launch_main_app(user_data):
                 is_spinning=spinning,
                 anim_offset=anim_offset,
                 result_index=result_index,
-                highlight_index=globals.FORCED_SEGMENT,
+                highlight_index=app_globals.FORCED_SEGMENT,
                 highlight_on=highlight_on2
             )
         else:

@@ -15,13 +15,13 @@ from reportlab.lib.pagesizes import letter
 from reportlab.graphics.barcode import code128
 from reportlab.lib.units import mm
 
-import globals
+import app_globals
 new_withdraw_time = None
 
 def print_withdraw_time():
     # This will only run when you explicitly call it, so by then main_app.py has set it
-    print("Withdraw_time (from wheel_module):", globals.Withdraw_time)
-    new_withdraw_time = globals.Withdraw_time
+    print("Withdraw_time (from wheel_module):", app_globals.Withdraw_time)
+    new_withdraw_time = app_globals.Withdraw_time
 
 # --------------------------------------------------
 # COLORS
@@ -674,7 +674,7 @@ def draw_left_table(
     # ----------------------
     header_cell = pygame.Rect(x0, y_start, col_w, cell_h)
     label_surf  = small_font.render("Withdraw time:", True, WHITE)
-    value_surf  = small_font.render(globals.Withdraw_time, True, WHITE)
+    value_surf  = small_font.render(app_globals.Withdraw_time, True, WHITE)
     cx = header_cell.centerx
     cy = header_cell.centery
     surf.blit(label_surf, (cx - label_surf.get_width() / 2, cy - label_surf.get_height()))
@@ -1109,7 +1109,7 @@ def draw_left_table(
     # ----------------------
     # 9) History row (unchanged)
     # ----------------------
-    history = getattr(globals, "history_json", [])
+    history = getattr(app_globals, "history_json", [])
     if history:
         # Compute base sizes
         box_size   = int(min(col_w, cell_h) * 0.7)
@@ -1210,11 +1210,11 @@ def handle_click(mouse_pos):
         total_bet_amount = sum(amt for (_, _), amt in placed_chips.items())
         payload = {
             "bets": {f"{r}_{c}": amt for (r, c), amt in placed_chips.items()},
-            "Withdraw_time": globals.Withdraw_time,
-            "User_id": globals.User_id
+            "Withdraw_time": app_globals.Withdraw_time,
+            "User_id": app_globals.User_id
         }
         print("Sending payload:", json.dumps(payload, indent=2))
-        globals.user_data_points -= total_bet_amount
+        app_globals.user_data_points -= total_bet_amount
         resp = requests.post(
             "https://spintofortune.in/api/app_place_bet.php",
             json=payload,
