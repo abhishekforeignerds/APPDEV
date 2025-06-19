@@ -226,7 +226,7 @@ def launch_main_app(user_data):
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
         app_globals.history_json = data.get('game_results_history', [])
-        #print("Response from:", app_globals.history_json)
+        print("Response from:", app_globals.history_json)
         server_ts = data.get("server_timestamp", time.time())
     except Exception:
         server_ts = time.time()
@@ -256,7 +256,7 @@ def launch_main_app(user_data):
     #     After this, we’ll always use globals.user_data_points and let handle_click() update it.
     app_globals.user_data_points = user_data.get('points', 0)
     app_globals.total_win_today = user_data.get('winning_points', 0)
-    #print(f"Updated initial globals.total_win_today → {app_globals.total_win_today}")
+    print(f"Updated initial globals.total_win_today → {app_globals.total_win_today}")
 
     mapped_list      = []
     waiting_for_blink= False
@@ -295,7 +295,7 @@ def launch_main_app(user_data):
                 data = resp.json()
                 app_globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
-                # #print("Response from DASHBOARD API mapped_list:", mapped_list)
+                # print("Response from DASHBOARD API mapped_list:", mapped_list)
 
                 srv_now = data.get('server_timestamp')
                 if srv_now:
@@ -401,12 +401,12 @@ def launch_main_app(user_data):
                 resp_data = resp.json()
 
                 # Print entire JSON response each time
-                #print("Response from RESULT_API (at remaining==5):", resp_data)
+                print("Response from RESULT_API (at remaining==5):", resp_data)
 
                 choosen = resp_data.get("choosenindex")
                 if choosen is not None:
                     app_globals.FORCED_SEGMENT = int(choosen)
-                    #print(f"Updated globals.FORCED_SEGMENT → {app_globals.FORCED_SEGMENT}")
+                    print(f"Updated globals.FORCED_SEGMENT → {app_globals.FORCED_SEGMENT}")
                 waiting_for_blink = True
                 result_api_called = True
             except Exception as e:
@@ -419,13 +419,13 @@ def launch_main_app(user_data):
             win_value = int(resp_data.get("chooseindexpoint", 0))
 
             if win_value is not None:
-                #print(f"Updated before globals.total_win_today → {app_globals.total_win_today}")
+                print(f"Updated before globals.total_win_today → {app_globals.total_win_today}")
                 def delayed_update():
                     time.sleep(5)
                     app_globals.total_win_today = int(app_globals.total_win_today) + win_value * 10
 
                 threading.Thread(target=delayed_update).start()
-                #print(f"Updated after globals.total_win_today → {app_globals.total_win_today}")
+                print(f"Updated after globals.total_win_today → {app_globals.total_win_today}")
 
             desired_final_ang = compute_final_angle_for_segment(target_i, num_segments)
             delta_ang = (desired_final_ang - spin_base_ang) % 360.0
@@ -470,7 +470,7 @@ def launch_main_app(user_data):
                         if isinstance(bet_amt, (int, float)):
                             # Subtract the bet amount from globals.user_data_points
                             app_globals.user_data_points = max(0, app_globals.user_data_points - bet_amt)
-                            #print(f"Bet placed: {bet_amt}, New balance = {app_globals.user_data_points}")
+                            print(f"Bet placed: {bet_amt}, New balance = {app_globals.user_data_points}")
                 else:
                     if back_btn.collidepoint(ev.pos):
                         show_mode = 'wheel'
