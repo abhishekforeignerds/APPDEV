@@ -226,7 +226,7 @@ def launch_main_app(user_data):
         resp = requests.post(DASHBOARD_API, data={"ID": str(user_data['id'])})
         data = resp.json()
         app_globals.history_json = data.get('game_results_history', [])
-        print("Response from:", app_globals.history_json)
+        #print("Response from:", app_globals.history_json)
         server_ts = data.get("server_timestamp", time.time())
     except Exception:
         server_ts = time.time()
@@ -256,7 +256,8 @@ def launch_main_app(user_data):
     #     After this, we’ll always use globals.user_data_points and let handle_click() update it.
     app_globals.user_data_points = user_data.get('points', 0)
     app_globals.total_win_today = user_data.get('winning_points', 0)
-    print(f"Updated initial globals.total_win_today → {app_globals.total_win_today}")
+    app_globals.auto_claim = user_data.get('auto_claim', 0)
+    #print(f"Updated initial globals.total_win_today → {app_globals.total_win_today}")
 
     mapped_list      = []
     waiting_for_blink= False
@@ -295,7 +296,7 @@ def launch_main_app(user_data):
                 data = resp.json()
                 app_globals.User_id = str(user_data['id'])
                 mapped_list = data.get('mapped', [])
-                # print("Response from DASHBOARD API mapped_list:", mapped_list)
+                # #print("Response from DASHBOARD API mapped_list:", mapped_list)
 
                 srv_now = data.get('server_timestamp')
                 if srv_now:
@@ -401,12 +402,12 @@ def launch_main_app(user_data):
                 resp_data = resp.json()
 
                 # Print entire JSON response each time
-                print("Response from RESULT_API (at remaining==5):", resp_data)
+                #print("Response from RESULT_API (at remaining==5):", resp_data)
 
                 choosen = resp_data.get("choosenindex")
                 if choosen is not None:
                     app_globals.FORCED_SEGMENT = int(choosen)
-                    print(f"Updated globals.FORCED_SEGMENT → {app_globals.FORCED_SEGMENT}")
+                    #print(f"Updated globals.FORCED_SEGMENT → {app_globals.FORCED_SEGMENT}")
                 waiting_for_blink = True
                 result_api_called = True
             except Exception as e:
@@ -419,13 +420,13 @@ def launch_main_app(user_data):
             win_value = int(resp_data.get("chooseindexpoint", 0))
 
             if win_value is not None:
-                print(f"Updated before globals.total_win_today → {app_globals.total_win_today}")
+                #print(f"Updated before globals.total_win_today → {app_globals.total_win_today}")
                 def delayed_update():
                     time.sleep(5)
                     app_globals.total_win_today = int(app_globals.total_win_today) + win_value * 10
 
                 threading.Thread(target=delayed_update).start()
-                print(f"Updated after globals.total_win_today → {app_globals.total_win_today}")
+                #print(f"Updated after globals.total_win_today → {app_globals.total_win_today}")
 
             desired_final_ang = compute_final_angle_for_segment(target_i, num_segments)
             delta_ang = (desired_final_ang - spin_base_ang) % 360.0
@@ -470,11 +471,53 @@ def launch_main_app(user_data):
                         if isinstance(bet_amt, (int, float)):
                             # Subtract the bet amount from globals.user_data_points
                             app_globals.user_data_points = max(0, app_globals.user_data_points - bet_amt)
-                            print(f"Bet placed: {bet_amt}, New balance = {app_globals.user_data_points}")
+                            #print(f"Bet placed: {bet_amt}, New balance = {app_globals.user_data_points}")
                 else:
                     if back_btn.collidepoint(ev.pos):
                         show_mode = 'wheel'
 
+            if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                mx, my = ev.pos
+                # did we click the checkbox?
+                checkbox_rect = pygame.Rect(checkbox_x, checkbox_y, checkbox_size, checkbox_size)
+                if checkbox_rect.collidepoint(mx, my):
+                    # toggle and (optionally) persist
+                    app_globals.auto_claim = 0 if app_globals.auto_claim else 1
+                    url = "https://spintofortune.in/api/app_toggle_auto_claim.php"
+                    
+                    payload = {"user_id": app_globals.User_id,"auto_claim": app_globals.auto_claim}
+                    payload_json = json.dumps(payload)
+
+                    headers = {
+                        "Content-Type":   "application/json; charset=UTF-8",
+                        "Content-Length": str(len(payload_json))
+                    }
+
+                    try:
+                        resp = requests.post(url, data=payload_json, headers=headers)
+
+                        # always print status
+                        #print(f"Response HTTP {resp.status_code}")
+
+                        # try JSON first
+                        try:
+                            data = resp.json()
+                            #print("Response JSON:", json.dumps(data, indent=2))
+                        except ValueError:
+                            # fallback to raw text
+                            print("Response text:", resp.text)
+
+                        # if it’s a non‐2xx, raise here if you still want an exception
+                        if resp.status_code >= 400:
+                            resp.raise_for_status()
+
+                    except requests.exceptions.HTTPError as http_err:
+                        # now you’ll see the server-sent body too
+                        #print("HTTP error occurred:", http_err)
+                        print("Response body:", http_err.response.text)
+                    except Exception as e:
+                        print("Other error:", e)
+                    #print('auto_claim', app_globals.auto_claim)
         # ─── Update rotation + scrolling text offset ───
         if spinning:
             delta_ang, still_spinning = update_spin(now_local, spin_start, total_rot)
@@ -571,16 +614,40 @@ def launch_main_app(user_data):
         screen.blit(balance_surf, balance_rect)
 
 
+
+        WHITE = (255, 255, 255)
+        GREEN = (0, 200, 0)
+
+        # …
+
+        checkbox_size = 24
+        checkbox_x = 40   # moved 20px to the right (was 20)
+        checkbox_y = (margin_top - checkbox_size) // 2
+
+        # Draw the checkbox border
+        checkbox_rect = pygame.Rect(checkbox_x, checkbox_y, checkbox_size, checkbox_size)
+        pygame.draw.rect(screen, WHITE, checkbox_rect, 2)  # 2 px border
+
+        if app_globals.auto_claim:
+            # Draw a check mark instead of filling
+            # calculate three key points for a nice “tick”
+            start = (checkbox_x + 4, checkbox_y + checkbox_size // 2)
+            mid   = (checkbox_x + checkbox_size // 2, checkbox_y + checkbox_size - 4)
+            end   = (checkbox_x + checkbox_size - 4, checkbox_y + 4)
+            pygame.draw.line(screen, GREEN, start, mid, 3)
+            pygame.draw.line(screen, GREEN, mid,   end, 3)
         # Current date/time & wins
         current_clock = datetime.now().strftime('%H:%M:%S')
         current_date  = datetime.now().strftime('%d-%m-%Y')
         info_txt = (
+            f"Auto Claim  "
             f"{current_date}  "
             f"{current_clock}   "
-            f"Win:{app_globals.total_win_today}"
+            f"Win:{app_globals.total_win_today}   "
+            
         )
-        text_surf = pygame.font.Font(None, 30).render(info_txt, True, YELLOW_BG)
-        screen.blit(text_surf, (20, (margin_top - text_surf.get_height()) // 2))
+        text_surf = font.render(info_txt, True, YELLOW_BG)
+        screen.blit(text_surf, (checkbox_x + checkbox_size + 10, checkbox_y))
 
         # ─── Draw Left Table (possibly blinking ribbon) ───
         if blink_mode:
@@ -674,10 +741,11 @@ def launch_main_app(user_data):
             )
 
         # “History” screen
+
         if show_mode == 'history':
             cols = [
                 "card_type", "ticket_serial", "bet_amount",
-                "win_point", "claim_point", "unclaim_point",
+                "win_point", "claim_point", "unclaim_point",'withdraw_time',
                 "status", "action"
             ]
             draw_table(
@@ -794,7 +862,7 @@ def launch_main_app(user_data):
 
         # “Simple” screen
         elif show_mode == 'simple':
-            cols3 = ["card_type", "ticket_serial", "bet_amount", "claim_point", "unclaim_point"]
+            cols3 = ["card_type", "ticket_serial", "bet_amount", "claim_point", "unclaim_point",'withdraw_time']
             draw_table(
                 screen, cols3, mapped_list, "Card History",
                 pygame.font.SysFont("Arial", 32, bold=True),

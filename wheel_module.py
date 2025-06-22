@@ -20,7 +20,7 @@ new_withdraw_time = None
 
 def print_withdraw_time():
     # This will only run when you explicitly call it, so by then main_app.py has set it
-    print("Withdraw_time (from wheel_module):", app_globals.Withdraw_time)
+    #print("Withdraw_time (from wheel_module):", app_globals.Withdraw_time)
     new_withdraw_time = app_globals.Withdraw_time
 
 # --------------------------------------------------
@@ -72,171 +72,216 @@ import json
 import subprocess
 
 try:
-    import win32api
-    import win32print
+    import win32api, win32print
 except ImportError:
-    win32api = None
-    win32print = None
+    win32api = win32print = None
 
+LOG_FILE = "printer_debug.log"
 
-def print_json_silent(data_dict, printer_name=None):
-    ticket_block = data_dict.get("data", {}).get("ticket", {})
-    if not ticket_block:
-        print("[Printer][Error] No 'ticket' block found in data_dict.")
+def _log(message):
+    """Append a log message to LOG_FILE with an HTML <br> line break."""
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"{datetime.now().isoformat()} - {message}<br>\n")
+
+def _print_raw_windows(printer_name, text):
+    """Send raw text directly to a Windows printer."""
+    _log(f"Opening Windows printer: {printer_name}")
+    hPrinter = win32print.OpenPrinter(printer_name)
+    try:
+        hJob = win32print.StartDocPrinter(hPrinter, 1, ("Ticket", None, "RAW"))
+        win32print.StartPagePrinter(hPrinter)
+        win32print.WritePrinter(hPrinter, text.encode("utf-8"))
+        win32print.EndPagePrinter(hPrinter)
+        win32print.EndDocPrinter(hPrinter)
+        _log("Raw print job sent (Windows).")
+    finally:
+        win32print.ClosePrinter(hPrinter)
+
+def _print_raw_unix(printer_name, text):
+    """Pipe raw text to lpr in literal mode on Unix."""
+    cmd = ["lpr", "-l"]
+    if printer_name:
+        cmd.extend(["-P", printer_name])
+    _log(f"Running raw-print command: {' '.join(cmd)}")
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    p.communicate(input=text.encode("utf-8"))
+    _log("Raw print job sent (Unix).")
+
+def _check_windows_queue(printer_name):
+    """Log all jobs in the specified printer’s queue."""
+    hPrinter = win32print.OpenPrinter(printer_name)
+    try:
+        # get all jobs
+        # (level 2 gives access to status, pages printed, etc)
+        jobs = win32print.EnumJobs(hPrinter, 0, -1, 2)
+        _log(f"--- Queue for '{printer_name}' ---")
+        for job in jobs:
+            _log(f"JobId={job["JobId"]} Status={job["Status"]} PagesPrinted={job["PagesPrinted"]}")
+    finally:
+        win32print.ClosePrinter(hPrinter)
+
+def print_json_silent(data_dict, printer_name=None, use_raw=True):
+    _log("Function called.")
+    ticket = data_dict.get("data", {}).get("ticket", {})
+    if not ticket:
+        _log("ERROR: No 'ticket' block found.")
         return
 
-    ticket_id       = ticket_block.get("id", "")
-    serial_number   = ticket_block.get("serial_number", "")
-    user_id         = ticket_block.get("user_id", "")
-    amount          = ticket_block.get("amount", "")
-    withdraw_time   = ticket_block.get("created_at", "")
+    # Extract fields
+    tid   = ticket.get("id", "")
+    serial = ticket.get("serial_number", "")
+    user   = ticket.get("user_id", "")
+    amt    = ticket.get("amount", "")
+    wtime  = ticket.get("created_at", "")
 
-    game_name = "Poker Roulette 12 Cards"
-    game_id   = "5678425"
+    # Parse card_name
+    raw = ticket.get("card_name", "{}")
+    try:
+        cmap = json.loads(raw)
+        cards = ", ".join(f"{k}→{v}" for k,v in cmap.items())
+        _log(f"Parsed card_name: {cards}")
+    except Exception as e:
+        cards = raw
+        _log(f"WARNING: could not parse card_name JSON: {e}")
 
     now = datetime.now()
-    print_date = now.strftime("%Y-%m-%d")
-    print_time = now.strftime("%H:%M:%S")
+    pdate = now.strftime("%Y-%m-%d")
+    ptime = now.strftime("%H:%M:%S")
 
-    print(f"[Printer][Info] Preparing ticket data:")
-    print(f"  Ticket ID     : {ticket_id}")
-    print(f"  Serial Number : {serial_number}")
-    print(f"  Terminal Name : {user_id}")
-    print(f"  Amount        : {amount}")
-    print(f"  Withdraw Time : {withdraw_time}")
-    print(f"  Print Date    : {print_date}")
-    print(f"  Print Time    : {print_time}")
+    # If raw mode: build text and send directly
+    if use_raw:
+        _log("Using RAW-text print mode.")
+        lines = [
+            "=== Poker Roulette 12 Cards ===",
+            f"Ticket ID     : {tid}",
+            f"Serial Number : {serial}",
+            f"User ID       : {user}",
+            f"Amount        : {amt}",
+            f"Withdraw Time : {wtime}",
+            f"Print Date    : {pdate}",
+            f"Print Time    : {ptime}",
+            f"Cards         : {cards}",
+            "Not For Sale",
+        ]
+        raw_text = "\r\n".join(lines) + "\r\n"
+        system = platform.system()
+        _log(f"Detected OS for RAW mode: {system}")
 
-    base_pdf_name = f"ticket_{serial_number}"
-    pdf_filename = base_pdf_name + ".pdf"
-    print(f"[Printer][Info] Generating PDF: {pdf_filename}")
+        if system == "Windows" and win32print:
+            target = printer_name or win32print.GetDefaultPrinter()
+            _log(f"RAW → Windows printer: {target}")
+            _print_raw_windows(target, raw_text)
+            _check_windows_queue(target)
+        else:
+            target = printer_name or "<default>"
+            _log(f"RAW → Unix printer: {target}")
+            _print_raw_unix(printer_name, raw_text)
 
-    c = canvas.Canvas(pdf_filename, pagesize=letter)
-    width, height = letter
+        _log("Function completed (RAW mode).")
+        return
 
-    y = height - 50
+    # Otherwise, PDF+spool path
+    base = f"ticket_{serial or 'unknown'}.pdf"
+    _log(f"Generating PDF: {base}")
+    c = canvas.Canvas(base, pagesize=letter)
+    w, h = letter
+    y = h - 50
 
     c.setFont("Helvetica-Bold", 12)
-    c.drawCentredString(width / 2, y, "For Amusement Only")
+    c.drawCentredString(w/2, y, "For Amusement Only")
     y -= 30
-
     c.setFont("Helvetica-Bold", 14)
-    c.drawCentredString(width / 2, y, f"Ticket ID: {ticket_id}")
+    c.drawCentredString(w/2, y, f"Ticket ID: {tid}")
     y -= 25
 
     lines = [
-        f"Game Name        : {game_name}",
-        f"Terminal Name    : {user_id}",
-        f"Game ID          : {game_id}",
-        f"Withdraw Time    : {withdraw_time}",
-        f"Print Date       : {print_date}",
-        f"Print Time       : {print_time}",
-        f"Serial Number    : {serial_number}",
-        f"Amount           : {amount}",
+        f"Game Name     : Poker Roulette 12 Cards",
+        f"Terminal Name : {user}",
+        f"Game ID       : 5678425",
+        f"Withdraw Time : {wtime}",
+        f"Print Date    : {pdate}",
+        f"Print Time    : {ptime}",
+        f"Serial Number : {serial}",
+        f"Amount        : {amt}",
+        f"Card Name     : {cards}",
     ]
-
     c.setFont("Helvetica", 12)
     for line in lines:
-        print(f"[Printer][Info] Adding to PDF: {line}")
+        _log(f"PDF line: {line}")
         c.drawString(50, y, line)
         y -= 20
 
-    if serial_number:
+    if serial:
         try:
-            print(f"[Printer][Info] Generating barcode for: {serial_number}")
-            barcode_obj = code128.Code128(
-                serial_number,
-                barHeight=20 * mm,
-                barWidth=0.5 * mm
-            )
-            barcode_width = barcode_obj.width
-            x_barcode = (width - barcode_width) / 2
-            barcode_obj.drawOn(c, x_barcode, y - (20 * mm))
-            y -= (20 * mm + 30)
-
-            c.setFont("Helvetica", 10)
-            print(f"[Printer][Info] Embedded barcode and serial text.")
+            _log(f"Generating barcode for: {serial}")
+            bc = code128.Code128(serial, barHeight=20*mm, barWidth=0.5*mm)
+            bw = bc.width
+            bc.drawOn(c, (w-bw)/2, y-(20*mm))
+            y -= (20*mm + 30)
+            _log("Barcode embedded.")
         except Exception as e:
-            print(f"[Printer][Warning] Could not generate/embed barcode: {e}")
+            _log(f"WARNING: barcode error: {e}")
             y -= 30
-    else:
-        print(f"[Printer][Warning] No serial number to generate barcode.")
-        y -= 30
 
-    footer_text = "Not For Sale"
-    print(f"[Printer][Info] Adding footer to PDF: {footer_text}")
     c.setFont("Helvetica-Bold", 12)
-    c.drawCentredString(width / 2, y, footer_text)
+    c.drawCentredString(w/2, y, "Not For Sale")
+    _log("Adding footer: Not For Sale")
 
     c.showPage()
     c.save()
-    print(f"[Printer][Info] PDF saved: {pdf_filename}")
+    _log(f"PDF saved: {base}")
 
-    system_name = platform.system()
-    print(f"[Printer] Detected OS: {system_name}")
-
-    if system_name == "Windows":
-        if win32api is None or win32print is None:
-            print("[Printer][Error] On Windows, silent printing requires 'pywin32'.")
-            print("[Printer][Error] Install it via: pip install pywin32")
-            return
-
+    # Enumerate printers
+    system = platform.system()
+    _log(f"Detected OS: {system}")
+    if system == "Windows" and win32print:
         try:
-            if printer_name:
-                target_printer = printer_name
-            else:
-                target_printer = win32print.GetDefaultPrinter()
+            flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            plist = win32print.EnumPrinters(flags)
+            default = win32print.GetDefaultPrinter()
+            _log("Enumerating Windows printers:")
+            for _,_,name,_ in plist:
+                stat = "DEFAULT" if name==default else "OK"
+                _log(f"  '{name}' → {stat}")
         except Exception as e:
-            print(f"[Printer][Error] Could not retrieve default printer: {e}")
-            return
-
-        if not target_printer:
-            print("[Printer][Error] No default printer found on Windows.")
-            return
-
-        print(f"[Printer] Using Windows printer: '{target_printer}'")
-
+            _log(f"WARNING: could not list printers: {e}")
+    elif system in ("Linux","Darwin"):
         try:
-            win32api.ShellExecute(
-                0,
-                "printto",
-                pdf_filename,
-                f'"{target_printer}"',
-                ".",
-                0
-            )
-            print(f"[Printer][Info] ShellExecute 'printto' issued for '{pdf_filename}'.")
+            res = subprocess.run(["lpstat","-p"], check=True, capture_output=True)
+            _log("Enumerating CUPS printers:")
+            for L in res.stdout.decode().splitlines():
+                parts = L.split()
+                if parts and parts[0]=="printer":
+                    nm, st = parts[1], " ".join(parts[3:])
+                    _log(f"  '{nm}' → {st}")
         except Exception as e:
-            print(f"[Printer][Error] Failed to ShellExecute print: {e}")
+            _log(f"WARNING: lpstat error: {e}")
 
-    elif system_name in ("Linux", "Darwin"):
+    # Send to printer
+    if system == "Windows" and win32api:
+        try:
+            tgt = printer_name or win32print.GetDefaultPrinter()
+            _log(f"Windows printto → {tgt}")
+            win32api.ShellExecute(0, "printto", base, f'"{tgt}"', ".", 0)
+            _log("ShellExecute printto issued.")
+        except Exception as e:
+            _log(f"ERROR: Windows print failed: {e}")
+    elif system in ("Linux","Darwin"):
         from shutil import which
         if which("lpr") is None:
-            print("[Printer][Error] 'lpr' command not found.")
-            print("[Printer][Error] Install CUPS / lpr utilities.")
-            return
-
-        cmd = ["lpr", pdf_filename]
-        if printer_name:
-            cmd = ["lpr", "-P", printer_name, pdf_filename]
-
-        target = printer_name or "<default>"
-        print(f"[Printer] Sending PDF to {target} (via 'lpr').")
-
-        try:
-            result = subprocess.run(cmd, check=True, capture_output=True)
-            print(f"[Printer][Info] PDF sent to printer '{target}' successfully (exit code {result.returncode}).")
-        except subprocess.CalledProcessError as e:
-            stderr_out = e.stderr.decode("utf-8", errors="ignore") if e.stderr else ""
-            print(f"[Printer][Error] lpr failed (code {e.returncode}).")
-            if stderr_out:
-                print(f"[Printer][Error] lpr stderr: {stderr_out.strip()}")
-        except Exception as exc:
-            print(f"[Printer][Error] Unexpected error calling lpr: {exc}")
-
+            _log("ERROR: 'lpr' not found.")
+        else:
+            cmd = ["lpr", "-P", printer_name, base] if printer_name else ["lpr", base]
+            _log(f"Running: {' '.join(cmd)}")
+            try:
+                out = subprocess.run(cmd, check=True, capture_output=True)
+                _log(f"lpr exit code: {out.returncode}")
+            except Exception as e:
+                _log(f"ERROR: lpr failed: {e}")
     else:
-        print(f"[Printer][Error] Unsupported OS for printing: {system_name}")
+        _log(f"ERROR: Unsupported OS: {system}")
 
+    _log("Function completed.")
 # --------------------------------------------------
 # COLORS (feel free to tweak or replace)
 # --------------------------------------------------
@@ -1194,7 +1239,7 @@ def draw_left_table(
 # --------------------------------------
 def handle_click(mouse_pos, compute_countdown_fn):
     remaining, _ = compute_countdown_fn()
-    print('remaining', remaining)
+    #print('remaining', remaining)
     """
     Must be called in your main loop on MOUSEBUTTONDOWN.
     1) Click a tray chip → select that chip.
@@ -1216,43 +1261,44 @@ def handle_click(mouse_pos, compute_countdown_fn):
             app_globals.message_time = pygame.time.get_ticks()
             return
         total_bet_amount = sum(amt for (_, _), amt in placed_chips.items())
-        payload = {
-            "bets": {f"{r}_{c}": amt for (r, c), amt in placed_chips.items()},
-            "Withdraw_time": app_globals.Withdraw_time,
-            "User_id":       app_globals.User_id
-        }
-        print("Sending payload:", json.dumps(payload, indent=2))
+        if total_bet_amount > 0:
+            payload = {
+                "bets": {f"{r}_{c}": amt for (r, c), amt in placed_chips.items()},
+                "Withdraw_time": app_globals.Withdraw_time,
+                "User_id":       app_globals.User_id
+            }
+            #print("Sending payload:", json.dumps(payload, indent=2))
 
-        # optimistically deduct points
-        app_globals.user_data_points -= total_bet_amount
+            # optimistically deduct points
+            app_globals.user_data_points -= total_bet_amount
 
-        resp = requests.post(
-            "https://spintofortune.in/api/app_place_bet.php",
-            json=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        print("Status:", resp.status_code)
-        print("Raw response text:", resp.text)
-        resp.raise_for_status()
+            resp = requests.post(
+                "https://spintofortune.in/api/app_place_bet.php",
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            #print("Status:", resp.status_code)
+            #print("Raw response text:", resp.text)
+            resp.raise_for_status()
 
-        data = resp.json()
-        print(json.dumps(data, indent=2))
-        print_json_silent(data)
+            data = resp.json()
+            #print(json.dumps(data, indent=2))
+            print_json_silent(data)
 
-        # --- clear all placed bets ---
-        last_placed_chips = placed_chips.copy()
-        placed_chips.clear()
-        selected_chip = None
+            # --- clear all placed bets ---
+            last_placed_chips = placed_chips.copy()
+            placed_chips.clear()
+            selected_chip = None
 
-        # --- NEW: show success message ---
-        if data.get('status') == 'success':
-            payload = data.get('data', {})           # the nested object
-            ticket_serial = payload.get('serial')  
-            app_globals.message = f"Bet was placed successfully: Ticket Id - {ticket_serial}"
-            # record when we showed it
-            app_globals.message_time = pygame.time.get_ticks()
+            # --- NEW: show success message ---
+            if data.get('status') == 'success':
+                payload = data.get('data', {})           # the nested object
+                ticket_serial = payload.get('serial')  
+                app_globals.message = f"Bet was placed successfully: Ticket Id - {ticket_serial}"
+                # record when we showed it
+                app_globals.message_time = pygame.time.get_ticks()
 
-            return
+                return
 
 
     # 2) Tray‐chip selection

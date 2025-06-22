@@ -9,3 +9,4 @@ message = ""
 message_time=""
 base_server_ts = None
 base_local_ts  = None
+auto_claim  = None

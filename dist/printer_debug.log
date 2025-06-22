@@ -1,0 +1,28 @@
+2025-06-22T11:12:58.190247 - Function called.<br>
+2025-06-22T11:12:58.190875 - Parsed card_name: 8→50<br>
+2025-06-22T11:12:58.191268 - Using RAW-text print mode.<br>
+2025-06-22T11:12:58.191697 - Detected OS for RAW mode: Windows<br>
+2025-06-22T11:12:58.192219 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:12:58.192542 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:12:58.390567 - Raw print job sent (Windows).<br>
+2025-06-22T11:18:19.980048 - Function called.<br>
+2025-06-22T11:18:19.982317 - Parsed card_name: 8→10, 9→10, 10→10, 11→10<br>
+2025-06-22T11:18:19.984301 - Using RAW-text print mode.<br>
+2025-06-22T11:18:19.985649 - Detected OS for RAW mode: Windows<br>
+2025-06-22T11:18:19.987139 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:18:19.988212 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:18:20.124740 - Raw print job sent (Windows).<br>
+2025-06-22T11:19:54.330486 - Function called.<br>
+2025-06-22T11:19:54.331614 - Parsed card_name: 8→50<br>
+2025-06-22T11:19:54.332656 - Using RAW-text print mode.<br>
+2025-06-22T11:19:54.333383 - Detected OS for RAW mode: Windows<br>
+2025-06-22T11:19:54.334207 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:19:54.334834 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:19:54.467361 - Raw print job sent (Windows).<br>
+2025-06-22T11:23:16.424251 - Function called.<br>
+2025-06-22T11:23:16.425787 - Parsed card_name: 8→50<br>
+2025-06-22T11:23:16.427076 - Using RAW-text print mode.<br>
+2025-06-22T11:23:16.428388 - Detected OS for RAW mode: Windows<br>
+2025-06-22T11:23:16.429733 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:23:16.430720 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-22T11:23:16.566860 - Raw print job sent (Windows).<br>

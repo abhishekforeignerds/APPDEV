@@ -200,7 +200,7 @@ def handle_claim_click(pos):
 
             # 1) LOCAL GUARD: if we already claimed this ticket, stop here
             if ts in _claimed_tickets:
-                print(f"[DEBUG] Ticket {ts} already claimed locally – skipping.")
+                #print(f"[DEBUG] Ticket {ts} already claimed locally – skipping.")
                 return
 
             # 2) BUILD & SEND
@@ -220,12 +220,12 @@ def handle_claim_click(pos):
             status = data.get('status')
             if status == 'already_claimed':
                 # server‑side guard
-                print(f"[DEBUG] Server says ticket {ts} already claimed.")
+                #print(f"[DEBUG] Server says ticket {ts} already claimed.")
                 _claimed_tickets.add(ts)
                 return
 
             if status != 'success':
-                print("Claim failed:", data.get('message'))
+                #print("Claim failed:", data.get('message'))
                 return
 
             # 3) SUCCESS → update globals, mark locally claimed
@@ -233,4 +233,4 @@ def handle_claim_click(pos):
             G.user_data_points += added
             _claimed_tickets.add(ts)
 
-            print(f"[DEBUG] HTTP {resp.status_code}: {resp.text!r}")
+            #print(f"[DEBUG] HTTP {resp.status_code}: {resp.text!r}")
