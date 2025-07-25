@@ -26,3 +26,20 @@
 2025-06-22T11:23:16.429733 - RAW → Windows printer: Microsoft Print to PDF<br>
 2025-06-22T11:23:16.430720 - Opening Windows printer: Microsoft Print to PDF<br>
 2025-06-22T11:23:16.566860 - Raw print job sent (Windows).<br>
+2025-06-22T12:08:28.747923 - Function called.<br>
+2025-06-22T12:08:28.749226 - Parsed card_name: 8→50<br>
+2025-06-22T12:08:28.750002 - Using RAW-text print mode.<br>
+2025-06-22T12:08:28.750663 - Detected OS for RAW mode: Windows<br>
+2025-06-22T12:08:28.752063 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-22T12:08:28.752673 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-22T12:08:28.974509 - Raw print job sent (Windows).<br>
+2025-06-22T12:42:06.262928 - Function called.<br>
+2025-06-22T12:42:06.265705 - Parsed card_name: 8→50<br>
+2025-06-22T12:42:06.267160 - Using RAW-text print mode.<br>
+2025-06-22T12:42:06.268489 - Detected OS for RAW mode: Windows<br>
+2025-06-22T12:42:06.270238 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-22T12:42:06.272140 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-22T12:42:06.509129 - Raw print job sent (Windows).<br>
+2025-06-22T12:42:06.537110 - --- Queue for 'Microsoft Print to PDF' ---<br>
+2025-06-22T12:42:06.537490 - JobId=23 Status=0 PagesPrinted=0<br>
+2025-06-22T12:42:06.538275 - Function completed (RAW mode).<br>

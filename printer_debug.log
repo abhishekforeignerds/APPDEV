@@ -1,1 +1,41 @@
 
+2025-06-25T15:41:50.102299 - Function called.<br>
+2025-06-25T15:41:50.103346 - Parsed card_name: 8→5, 9→5, 10→5, 11→5<br>
+2025-06-25T15:41:50.104362 - Using RAW-text print mode.<br>
+2025-06-25T15:41:50.104818 - Detected OS for RAW mode: Windows<br>
+2025-06-25T15:41:50.111626 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-25T15:41:50.112214 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-25T15:41:50.822312 - Raw print job sent (Windows).<br>
+2025-06-25T15:41:50.873907 - --- Queue for 'Microsoft Print to PDF' ---<br>
+2025-06-25T15:41:50.874451 - JobId=3 Status=0 PagesPrinted=0<br>
+2025-06-25T15:41:50.875091 - Function completed (RAW mode).<br>
+2025-06-25T15:42:20.959966 - Function called.<br>
+2025-06-25T15:42:20.960660 - Parsed card_name: 4→10, 5→10, 6→10, 7→10, 8→10, 9→10, 10→10, 11→10, 0→10, 1→10, 2→10, 3→10<br>
+2025-06-25T15:42:20.961157 - Using RAW-text print mode.<br>
+2025-06-25T15:42:20.961659 - Detected OS for RAW mode: Windows<br>
+2025-06-25T15:42:20.962247 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-06-25T15:42:20.962890 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-06-25T15:42:21.219071 - Raw print job sent (Windows).<br>
+2025-06-25T15:42:21.220953 - --- Queue for 'Microsoft Print to PDF' ---<br>
+2025-06-25T15:42:21.221500 - JobId=5 Status=0 PagesPrinted=0<br>
+2025-06-25T15:42:21.222158 - Function completed (RAW mode).<br>
+2025-07-17T12:10:41.265586 - Function called.<br>
+2025-07-17T12:10:41.267760 - Parsed card_name: 8→10<br>
+2025-07-17T12:10:41.269396 - Using RAW-text print mode.<br>
+2025-07-17T12:10:41.270379 - Detected OS for RAW mode: Windows<br>
+2025-07-17T12:10:41.274244 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-07-17T12:10:41.275426 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-07-17T12:10:42.268166 - Raw print job sent (Windows).<br>
+2025-07-17T12:10:42.307424 - --- Queue for 'Microsoft Print to PDF' ---<br>
+2025-07-17T12:10:42.307846 - JobId=3 Status=0 PagesPrinted=0<br>
+2025-07-17T12:10:42.308296 - Function completed (RAW mode).<br>
+2025-07-17T12:11:13.023424 - Function called.<br>
+2025-07-17T12:11:13.025142 - Parsed card_name: 8→20, 9→20, 10→20, 11→20<br>
+2025-07-17T12:11:13.026464 - Using RAW-text print mode.<br>
+2025-07-17T12:11:13.027578 - Detected OS for RAW mode: Windows<br>
+2025-07-17T12:11:13.028636 - RAW → Windows printer: Microsoft Print to PDF<br>
+2025-07-17T12:11:13.029475 - Opening Windows printer: Microsoft Print to PDF<br>
+2025-07-17T12:11:13.166521 - Raw print job sent (Windows).<br>
+2025-07-17T12:11:13.168129 - --- Queue for 'Microsoft Print to PDF' ---<br>
+2025-07-17T12:11:13.168626 - JobId=5 Status=0 PagesPrinted=0<br>
+2025-07-17T12:11:13.169187 - Function completed (RAW mode).<br>

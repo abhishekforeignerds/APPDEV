@@ -1,12 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
+binaries = []
+binaries += collect_dynamic_libs('pywin32_system32')
 
 
 a = Analysis(
     ['login_page.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=[('overlay-bg.jpg', '.'), ('background.jpg', '.'), ('golden-clubs.png', '.'), ('golden-diamond.png', '.'), ('golden-hearts.png', '.'), ('golden-spades.png', '.'), ('golden-k.png', '.'), ('golden-j.png', '.'), ('logo.png', '.'), ('golden-q.png', '.')],
-    hiddenimports=['reportlab.graphics.barcode.code128', 'reportlab.graphics.barcode.code93', 'reportlab.graphics.barcode.code39', 'reportlab.graphics.barcode.eanbc', 'reportlab.graphics.barcode.usps', 'reportlab.graphics.barcode.usps4s', 'reportlab.graphics.barcode.ecc200datamatrix', 'reportlab.graphics.barcode.dmtx', 'reportlab.graphics.barcode.qr', 'reportlab.graphics.barcode.qrencoder'],
+    hiddenimports=['reportlab.graphics.barcode.code128', 'reportlab.graphics.barcode.code93', 'reportlab.graphics.barcode.code39', 'reportlab.graphics.barcode.eanbc', 'reportlab.graphics.barcode.usps', 'reportlab.graphics.barcode.usps4s', 'reportlab.graphics.barcode.ecc200datamatrix', 'reportlab.graphics.barcode.dmtx', 'reportlab.graphics.barcode.qr', 'win32timezone', 'reportlab.graphics.barcode.qrencoder'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
